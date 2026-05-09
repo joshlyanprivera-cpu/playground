@@ -1,13 +1,30 @@
+name: Flutter iOS Build
+
+# This is the "on" section you were missing!
+on:
+  push:
+    branches: [ main ]      # Runs every time you push to the 'main' branch
+  pull_request:
+    branches: [ main ]      # Runs when a Pull Request is opened
+  workflow_dispatch:        # Adds a manual "Run" button in GitHub Actions tab
+
 jobs:
   main:
-    runs-on: macos-latest
+    runs-on: macos-latest   # Required for iOS builds
     steps:
       - name: Clone repository
         uses: actions/checkout@v6
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-      - run: flutter pub get
-      - run: flutter test
-      - run: flutter build ios --release --no-codesign
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Run tests
+        run: flutter test
+
+      - name: Build iOS (IPA)
+        run: flutter build ios --release --no-codesign
