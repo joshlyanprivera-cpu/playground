@@ -1,17 +1,17 @@
-# Uncomment this line to define a global platform for your project
+# Set the platform to 15.0 to satisfy Firebase
 platform :ios, '15.0'
 
-# CocoaPods analytics sends network stats to help improve the tool.
-# Without this, it may take longer to resolve dependencies.
-install! 'cocoapods', :deterministic_uuids => false
+# --- THE MISSING LINK ---
+# This line tells the Mac to load the Flutter helper functions
+load File.join(File.dirname(File.realpath(__FILE__)), 'Generated.xcconfig')
 
-# Flutter Specs
 target 'Runner' do
   use_frameworks!
   use_modular_headers!
 
+  # This function is now defined because of the 'load' line above
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
-  
+
   target 'RunnerTests' do
     inherit! :search_paths
   end
@@ -20,8 +20,9 @@ end
 post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
+    
+    # This loop ensures every sub-plugin also targets iOS 15.0
     target.build_configurations.each do |config|
-      # This ensures every plugin also targets iOS 15.0
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
     end
   end
