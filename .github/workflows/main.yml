@@ -11,6 +11,10 @@ on:
 jobs:
   main:
     runs-on: macos-latest   # Required for iOS builds
+
+    defaults:
+      run:
+       working-directory: /flutter/knp_inventory_system
     steps:
       - name: Clone repository
         uses: actions/checkout@v6
