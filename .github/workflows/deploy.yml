@@ -1,11 +1,9 @@
 name: Deploy Flutter Web to GitHub Pages
 
-# This tells GitHub to run this script every time you push to the 'main' branch
 on:
   push:
     branches: [ main ] 
 
-# Grants permissions needed to deploy to GitHub Pages
 permissions:
   contents: read
   pages: write
@@ -17,6 +15,12 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
+    
+    # NEW: Tell all 'run' commands in this job to execute inside your subfolder
+    defaults:
+      run:
+        working-directory: ./flutter/knp_inventory_system
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -27,18 +31,19 @@ jobs:
           channel: 'stable'
 
       - name: Install dependencies
+        # This will now run inside /flutter/knp_inventory_system
         run: flutter pub get
 
       - name: Build Web
-        # ⚠️ CRITICAL STEP ⚠️
-        # Replace 'your-repo-name' with your exact GitHub repository name!
-        # Keep the forward slashes around it.
-        run: flutter build web --base-href "/flutter/knp_inventory_sytem/"
+        # ⚠️ Replace 'your-repo-name' with your exact GitHub repository name!
+        # This will also run inside /flutter/knp_inventory_system
+        run: flutter build web --base-href "/playground/"
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: build/web
+          # NEW: Point this directly to the build folder inside your subfolder
+          path: flutter/knp_inventory_system/build/web
 
       - name: Deploy to GitHub Pages
         id: deployment
