@@ -33,7 +33,7 @@ jobs:
         # ⚠️ CRITICAL STEP ⚠️
         # Replace 'your-repo-name' with your exact GitHub repository name!
         # Keep the forward slashes around it.
-        run: flutter build web --base-href "/your-repo-name/"
+        run: flutter build web --base-href "/flutter/knp_inventory_sytem/"
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
