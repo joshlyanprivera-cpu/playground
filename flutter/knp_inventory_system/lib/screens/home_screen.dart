@@ -12,6 +12,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
   final InventoryService _inventoryService = InventoryService();
+  late final Stream<List<Ingredient>> _inventoryStream;
   String _searchQuery = '';
   String _selectedClassification = 'All';
 
@@ -53,6 +54,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   @override
   void initState() {
     super.initState();
+    _inventoryStream = _inventoryService.getInventoryStream();
     _fabAnimController = AnimationController(
       vsync: this, duration: const Duration(milliseconds: 250));
     _fabScaleAnim = CurvedAnimation(parent: _fabAnimController, curve: Curves.easeOut);
@@ -347,7 +349,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 // ─── Content ───
                 Expanded(
                   child: StreamBuilder<List<Ingredient>>(
-                    stream: _inventoryService.getInventoryStream(),
+                    stream: _inventoryStream,
                     builder: (context, snapshot) {
                       if (snapshot.hasError) {
                         return Center(child: Padding(

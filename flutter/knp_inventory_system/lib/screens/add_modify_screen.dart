@@ -12,6 +12,7 @@ class AddModifyScreen extends StatefulWidget {
 
 class _AddModifyScreenState extends State<AddModifyScreen> {
   final InventoryService _inventoryService = InventoryService();
+  late final Stream<List<Ingredient>> _inventoryStream;
   final _formKey = GlobalKey<FormState>();
 
   final _nameController = TextEditingController();
@@ -197,6 +198,12 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
         if (mounted) setState(() => _isLoading = false);
       }
     }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _inventoryStream = _inventoryService.getInventoryStream();
   }
 
   @override
@@ -392,7 +399,7 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
 
                   // ─── Ingredient List ───
                   StreamBuilder<List<Ingredient>>(
-                    stream: _inventoryService.getInventoryStream(),
+                    stream: _inventoryStream,
                     builder: (context, snapshot) {
                       if (snapshot.connectionState == ConnectionState.waiting) {
                         return const Padding(
