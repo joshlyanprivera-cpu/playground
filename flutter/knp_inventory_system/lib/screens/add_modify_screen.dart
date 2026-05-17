@@ -665,19 +665,38 @@ class _EditRow extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Top row: name + stepper + delete
+        // Full-width name
+        Text(item.name,
+          style: GoogleFonts.inter(
+            fontSize: 15, fontWeight: FontWeight.w600,
+            decoration: isMarkedForDelete ? TextDecoration.lineThrough : null,
+          ),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
+        const SizedBox(height: 6),
+        // Controls row: unit dropdown + steppers + delete
         Row(children: [
-          Expanded(
-            child: Text(item.name,
-              style: GoogleFonts.inter(
-                fontSize: 15, fontWeight: FontWeight.w600,
-                decoration: isMarkedForDelete ? TextDecoration.lineThrough : null,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+          // Unit dropdown
+          SizedBox(
+            height: 32,
+            child: DropdownButton<String>(
+              value: currentUnit,
+              isDense: true,
+              underline: const SizedBox.shrink(),
+              style: GoogleFonts.inter(fontSize: 12, color: Colors.grey),
+              icon: Icon(Icons.arrow_drop_down, size: 18, color: Colors.grey.shade500),
+              items: unitOptions.map((u) => DropdownMenuItem(
+                value: u,
+                child: Text(u, style: GoogleFonts.inter(fontSize: 12)),
+              )).toList(),
+              onChanged: isMarkedForDelete ? null : (val) {
+                if (val != null) { onUnitChanged(val); }
+              },
             ),
           ),
-          const SizedBox(width: 8),
+          const Spacer(),
+          // Subtract
           _StepperBtn(
             icon: Icons.remove,
             color: Colors.red.shade700,
@@ -687,6 +706,7 @@ class _EditRow extends StatelessWidget {
               if (v > 0) { ctrl.text = _fmt(v - 1); }
             },
           ),
+          // Quantity input
           SizedBox(
             width: 64,
             child: TextField(
@@ -701,6 +721,7 @@ class _EditRow extends StatelessWidget {
               ),
             ),
           ),
+          // Add
           _StepperBtn(
             icon: Icons.add,
             color: Colors.green.shade700,
@@ -711,6 +732,7 @@ class _EditRow extends StatelessWidget {
             },
           ),
           const SizedBox(width: 4),
+          // Delete toggle
           IconButton(
             icon: Icon(
               isMarkedForDelete ? Icons.restore_from_trash_outlined : Icons.delete_outline,
@@ -721,25 +743,6 @@ class _EditRow extends StatelessWidget {
             onPressed: onToggleDelete,
           ),
         ]),
-        // Bottom row: unit dropdown
-        const SizedBox(height: 4),
-        SizedBox(
-          height: 32,
-          child: DropdownButton<String>(
-            value: currentUnit,
-            isDense: true,
-            underline: const SizedBox.shrink(),
-            style: GoogleFonts.inter(fontSize: 12, color: Colors.grey),
-            icon: Icon(Icons.arrow_drop_down, size: 18, color: Colors.grey.shade500),
-            items: unitOptions.map((u) => DropdownMenuItem(
-              value: u,
-              child: Text(u, style: GoogleFonts.inter(fontSize: 12)),
-            )).toList(),
-            onChanged: isMarkedForDelete ? null : (val) {
-              if (val != null) { onUnitChanged(val); }
-            },
-          ),
-        ),
       ],
     );
   }

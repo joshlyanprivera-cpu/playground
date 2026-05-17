@@ -466,7 +466,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         cursor: SystemMouseCursors.click,
         child: Card(
           child: Padding(
-            padding: const EdgeInsets.all(14),
+            padding: EdgeInsets.symmetric(horizontal: 14, vertical: _isEditing ? 8 : 14),
             child: _isEditing
                 ? _HomeEditRow(
                     item: item,
@@ -622,7 +622,7 @@ class _HomeEditRow extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Top row: icon + name + steppers + delete
+        // Top row: icon + name
         Row(children: [
           Container(
             width: 36, height: 36,
@@ -638,9 +638,32 @@ class _HomeEditRow extends StatelessWidget {
               style: GoogleFonts.inter(
                 fontSize: 14, fontWeight: FontWeight.w600,
                 decoration: isMarked ? TextDecoration.lineThrough : null),
-              maxLines: 1, overflow: TextOverflow.ellipsis),
+              maxLines: 2, overflow: TextOverflow.ellipsis),
           ),
-          const SizedBox(width: 4),
+        ]),
+        const SizedBox(height: 6),
+        // Bottom row: unit dropdown + steppers + delete
+        Row(children: [
+          // Unit dropdown
+          SizedBox(
+            height: 28,
+            child: DropdownButton<String>(
+              value: currentUnit,
+              isDense: true,
+              underline: const SizedBox.shrink(),
+              style: GoogleFonts.inter(fontSize: 11, color: Colors.grey),
+              icon: Icon(Icons.arrow_drop_down, size: 16, color: Colors.grey.shade500),
+              items: unitOptions.map((u) => DropdownMenuItem(
+                value: u,
+                child: Text(u, style: GoogleFonts.inter(fontSize: 11)),
+              )).toList(),
+              onChanged: isMarked ? null : (val) {
+                if (val != null) { onUnitChanged(val); }
+              },
+            ),
+          ),
+          const Spacer(),
+          // Subtract
           _SmallStepBtn(
             icon: Icons.remove, color: Colors.red.shade700,
             bg: Colors.red.withValues(alpha: 0.1),
@@ -649,6 +672,7 @@ class _HomeEditRow extends StatelessWidget {
               if (v > 0) { ctrl.text = fmt(v - 1); }
             },
           ),
+          // Input
           SizedBox(
             width: 52,
             child: TextField(
@@ -663,6 +687,7 @@ class _HomeEditRow extends StatelessWidget {
               ),
             ),
           ),
+          // Add
           _SmallStepBtn(
             icon: Icons.add, color: Colors.green.shade700,
             bg: Colors.green.withValues(alpha: 0.1),
@@ -671,6 +696,7 @@ class _HomeEditRow extends StatelessWidget {
               ctrl.text = fmt(v + 1);
             },
           ),
+          // Delete toggle
           IconButton(
             icon: Icon(
               isMarked ? Icons.restore_from_trash_outlined : Icons.delete_outline,
@@ -683,25 +709,6 @@ class _HomeEditRow extends StatelessWidget {
             onPressed: onToggleDelete,
           ),
         ]),
-        // Bottom row: unit dropdown
-        const SizedBox(height: 2),
-        SizedBox(
-          height: 28,
-          child: DropdownButton<String>(
-            value: currentUnit,
-            isDense: true,
-            underline: const SizedBox.shrink(),
-            style: GoogleFonts.inter(fontSize: 11, color: Colors.grey),
-            icon: Icon(Icons.arrow_drop_down, size: 16, color: Colors.grey.shade500),
-            items: unitOptions.map((u) => DropdownMenuItem(
-              value: u,
-              child: Text(u, style: GoogleFonts.inter(fontSize: 11)),
-            )).toList(),
-            onChanged: isMarked ? null : (val) {
-              if (val != null) { onUnitChanged(val); }
-            },
-          ),
-        ),
       ],
     );
   }
