@@ -16,6 +16,7 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
 
   final _nameController = TextEditingController();
   final _quantityController = TextEditingController();
+  final _listScrollController = ScrollController();
 
   String _selectedClassification = 'coffee bean';
   final List<String> _classifications = [
@@ -157,7 +158,7 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
                       // Subtract Stepper
                       Container(
                         decoration: BoxDecoration(
-                          color: Colors.red.withOpacity(0.1),
+                          color: Colors.red.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: IconButton(
@@ -192,7 +193,7 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
                       // Add Stepper
                       Container(
                         decoration: BoxDecoration(
-                          color: Colors.green.withOpacity(0.1),
+                          color: Colors.green.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: IconButton(
@@ -211,7 +212,7 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
                   const SizedBox(height: 16),
                   // Unit Dropdown
                   DropdownButtonFormField<String>(
-                    value: dialogQtyClassification,
+                    initialValue: dialogQtyClassification,
                     isExpanded: true,
                     decoration: const InputDecoration(
                       labelText: 'Unit',
@@ -270,16 +271,27 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
   }
 
   @override
+  void dispose() {
+    _nameController.dispose();
+    _quantityController.dispose();
+    _listScrollController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 850),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
               // ─── Header ───
               Row(
                 children: [
@@ -339,7 +351,7 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
                         ),
                         const SizedBox(height: 14),
                         DropdownButtonFormField<String>(
-                          value: _selectedClassification,
+                          initialValue: _selectedClassification,
                           isExpanded: true,
                           decoration: const InputDecoration(
                             labelText: 'Classification',
@@ -375,7 +387,7 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
                             Expanded(
                               flex: 1,
                               child: DropdownButtonFormField<String>(
-                                value: _selectedQtyClassification,
+                                initialValue: _selectedQtyClassification,
                                 isExpanded: true,
                                 decoration: const InputDecoration(
                                   labelText: 'Unit',
@@ -473,7 +485,7 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
                 child: ListView.separated(
                   scrollDirection: Axis.horizontal,
                   itemCount: _filterClassifications.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 8),
+                  separatorBuilder: (context, index) => const SizedBox(width: 8),
                   itemBuilder: (context, index) {
                     final classification = _filterClassifications[index];
                     final isSelected =
@@ -554,82 +566,104 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
                     );
                   }
 
-                  return ListView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: filteredIngredients.length,
-                    itemBuilder: (context, index) {
-                      final item = filteredIngredients[index];
-                      return Card(
-                        child: InkWell(
-                          onTap: () =>
-                              _showAdjustQuantityDialog(item),
-                          borderRadius: BorderRadius.circular(20),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 16, vertical: 14),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
+                  return NotificationListener<ScrollNotification>(
+                    onNotification: (notification) => true, // absorb scroll events
+                    child: Container(
+                      constraints: const BoxConstraints(maxHeight: 450),
+                      clipBehavior: Clip.antiAlias,
+                      decoration: BoxDecoration(
+                        color: isDark ? Colors.black12 : Colors.grey.shade50,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: isDark ? Colors.grey.shade800 : Colors.grey.shade200,
+                          width: 1,
+                        ),
+                      ),
+                      child: ListView.builder(
+                        controller: _listScrollController,
+                        physics: const ClampingScrollPhysics(),
+                        padding: const EdgeInsets.all(8),
+                        shrinkWrap: true,
+                        itemCount: filteredIngredients.length,
+                        itemBuilder: (context, index) {
+                          final item = filteredIngredients[index];
+                          return MouseRegion(
+                            cursor: SystemMouseCursors.click,
+                            child: Card(
+                              child: InkWell(
+                                onTap: () =>
+                                    _showAdjustQuantityDialog(item),
+                                borderRadius: BorderRadius.circular(20),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 16, vertical: 14),
+                                  child: Row(
                                     children: [
-                                      Text(
-                                        item.name,
-                                        style: GoogleFonts.inter(
-                                          fontSize: 15,
-                                          fontWeight:
-                                              FontWeight.w600,
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              item.name,
+                                              style: GoogleFonts.inter(
+                                                fontSize: 15,
+                                                fontWeight:
+                                                    FontWeight.w600,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              '${item.quantity % 1 == 0 ? item.quantity.toInt() : item.quantity} ${item.quantityClassification}',
+                                              style: GoogleFonts.inter(
+                                                fontSize: 13,
+                                                color: Colors.grey,
+                                              ),
+                                            ),
+                                            if (item.lastUpdated != null) ...[
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                'Updated: ${item.lastUpdated!.month}/${item.lastUpdated!.day}/${item.lastUpdated!.year} ${item.lastUpdated!.hour}:${item.lastUpdated!.minute.toString().padLeft(2, '0')}',
+                                                style: GoogleFonts.inter(
+                                                  fontSize: 11,
+                                                  color: Colors.grey.shade500,
+                                                ),
+                                              ),
+                                            ],
+                                          ],
                                         ),
                                       ),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        '${item.quantity % 1 == 0 ? item.quantity.toInt() : item.quantity} ${item.quantityClassification}',
-                                        style: GoogleFonts.inter(
-                                          fontSize: 13,
-                                          color: Colors.grey,
+                                      Container(
+                                        padding:
+                                            const EdgeInsets.all(8),
+                                        decoration: BoxDecoration(
+                                          color: isDark
+                                              ? Colors.grey.shade800
+                                              : Colors.grey.shade100,
+                                          borderRadius:
+                                              BorderRadius.circular(
+                                                  10),
                                         ),
+                                        child: const Icon(
+                                            Icons.tune,
+                                            size: 20),
                                       ),
-                                      if (item.lastUpdated != null) ...[
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          'Updated: ${item.lastUpdated!.month}/${item.lastUpdated!.day}/${item.lastUpdated!.year} ${item.lastUpdated!.hour}:${item.lastUpdated!.minute.toString().padLeft(2, '0')}',
-                                          style: GoogleFonts.inter(
-                                            fontSize: 11,
-                                            color: Colors.grey.shade500,
-                                          ),
-                                        ),
-                                      ],
                                     ],
                                   ),
                                 ),
-                                Container(
-                                  padding:
-                                      const EdgeInsets.all(8),
-                                  decoration: BoxDecoration(
-                                    color: isDark
-                                        ? Colors.grey.shade800
-                                        : Colors.grey.shade100,
-                                    borderRadius:
-                                        BorderRadius.circular(
-                                            10),
-                                  ),
-                                  child: const Icon(
-                                      Icons.tune,
-                                      size: 20),
-                                ),
-                              ],
+                              ),
                             ),
-                          ),
-                        ),
-                      );
-                    },
+                          );
+                        },
+                      ),
+                    ),
                   );
                 },
               ),
               const SizedBox(height: 24),
             ],
+          ),
+        ),
           ),
         ),
       ),

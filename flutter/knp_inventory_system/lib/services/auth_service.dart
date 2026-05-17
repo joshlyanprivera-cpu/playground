@@ -1,5 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
-
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:google_sign_in/google_sign_in.dart';
 
 class AuthService {
@@ -26,7 +26,26 @@ class AuthService {
 
   Future<UserCredential?> signInWithGoogle() async {
     try {
-      // Trigger the native Google Sign-In flow
+      if (kIsWeb) {
+        // ─── Web: Use Firebase Auth popup flow directly ───
+        // This is the most reliable approach for web.
+        final GoogleAuthProvider googleProvider = GoogleAuthProvider();
+        googleProvider.addScope('email');
+        googleProvider.addScope('profile');
+
+        final userCredential = await _auth.signInWithPopup(googleProvider);
+
+        // Check if Firebase just created this account
+        if (userCredential.additionalUserInfo?.isNewUser ?? false) {
+          await userCredential.user?.delete();
+          await _auth.signOut();
+          throw Exception('Access Denied: Your email is not registered. Please contact the administrator.');
+        }
+
+        return userCredential;
+      }
+
+      // ─── Mobile (Android/iOS): Native Google Sign-In flow ───
       final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
 
       if (googleUser == null) {
@@ -67,6 +86,9 @@ class AuthService {
 
   Future<void> signOut() async {
     await _auth.signOut();
-    await GoogleSignIn().signOut();
+    if (!kIsWeb) {
+      // Only call GoogleSignIn().signOut() on mobile platforms
+      await GoogleSignIn().signOut();
+    }
   }
 }

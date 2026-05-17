@@ -99,7 +99,9 @@ class _LoginScreenState extends State<LoginScreen>
     return Scaffold(
       body: SafeArea(
         child: Center(
-          child: SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 450),
+            child: SingleChildScrollView(
             padding: const EdgeInsets.symmetric(horizontal: 28),
             child: FadeTransition(
               opacity: _fadeAnimation,
@@ -220,6 +222,7 @@ class _LoginScreenState extends State<LoginScreen>
                 ],
               ),
             ),
+          ),
           ),
         ),
       ),

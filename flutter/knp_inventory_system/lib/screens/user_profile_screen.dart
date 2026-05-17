@@ -17,7 +17,10 @@ class UserProfileScreen extends StatelessWidget {
 
     return Scaffold(
       body: SafeArea(
-        child: SingleChildScrollView(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 650),
+            child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -252,6 +255,8 @@ class UserProfileScreen extends StatelessWidget {
               ),
               const SizedBox(height: 32),
             ],
+          ),
+        ),
           ),
         ),
       ),

@@ -67,11 +67,11 @@ class DefaultFirebaseOptions {
   );
 
   static const FirebaseOptions windows = FirebaseOptions(
-    apiKey: 'YOUR_API_KEY',
-    appId: 'YOUR_APP_ID',
-    messagingSenderId: 'YOUR_SENDER_ID',
-    projectId: 'YOUR_PROJECT_ID',
-    authDomain: 'YOUR_AUTH_DOMAIN',
-    storageBucket: 'YOUR_STORAGE_BUCKET',
+    apiKey: 'AIzaSyA5CEbs5zLxB7zz5AVE_D_0syHb3NVnQAA',
+    appId: '1:870135094746:web:a5c6674e3276db6038f4e3',
+    messagingSenderId: '870135094746',
+    projectId: 'knp-inventory',
+    authDomain: 'knp-inventory.firebaseapp.com',
+    storageBucket: 'knp-inventory.firebasestorage.app',
   );
 }
