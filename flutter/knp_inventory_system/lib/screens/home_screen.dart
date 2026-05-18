@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../services/inventory_service.dart';
 import '../models/ingredient.dart';
+import '../models/category_model.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -13,48 +14,58 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
   final InventoryService _inventoryService = InventoryService();
   late final Stream<List<Ingredient>> _inventoryStream;
+  late final Stream<List<CategoryModel>> _categoryStream;
   String _searchQuery = '';
   String _selectedClassification = 'All';
+  List<String> _dynamicClassifications = ['All'];
 
   // ── Edit Mode State ──
   bool _isEditing = false;
   bool _isSaving = false;
   final Map<String, TextEditingController> _draftControllers = {};
   final Map<String, String> _draftUnits = {};
+  final Map<String, String> _draftCategories = {};
   final Set<String> _pendingDeletions = {};
   List<Ingredient> _lastSnapshot = [];
 
   late AnimationController _fabAnimController;
   late Animation<double> _fabScaleAnim;
 
-  final List<String> _classifications = [
-    'All', 'coffee bean', 'food product', 'dairy/non-dairy',
-    'syrup, sweeteners, flavorings', 'powders and blends', 'miscellaneous',
-  ];
-
-  IconData _classificationIcon(String classification) {
-    switch (classification) {
+  // Resolves a category name to its icon using the CategoryModel map,
+  // falling back to the legacy hardcoded switch, then a default.
+  IconData _getCategoryIcon(String name) {
+    final cat = CategoryModel.iconMap;
+    // Try to find by known iconString keys (we'll match by name later via stream)
+    // For now use the legacy map as fallback
+    switch (name) {
       case 'coffee bean': return Icons.coffee;
       case 'food product': return Icons.fastfood_outlined;
       case 'dairy/non-dairy': return Icons.icecream_outlined;
       case 'syrup, sweeteners, flavorings': return Icons.local_cafe_outlined;
       case 'powders and blends': return Icons.blender_outlined;
       case 'miscellaneous': return Icons.category_outlined;
-      default: return Icons.inventory_2_outlined;
+      case 'Uncategorized': return Icons.inbox_outlined;
+      default: return cat.values.first;
     }
   }
 
-  int _gridColumns(double width) {
-    if (width >= 1200) return 4;
-    if (width >= 900) return 3;
-    if (width >= 600) return 2;
-    return 1;
-  }
+
 
   @override
   void initState() {
     super.initState();
     _inventoryStream = _inventoryService.getInventoryStream();
+    _categoryStream = _inventoryService.getCategoriesStream();
+    _categoryStream.listen((cats) {
+      if (!mounted) return;
+      setState(() {
+        _dynamicClassifications = ['All', ...cats.map((c) => c.name)];
+        // Reset filter if it no longer exists
+        if (!_dynamicClassifications.contains(_selectedClassification)) {
+          _selectedClassification = 'All';
+        }
+      });
+    });
     _fabAnimController = AnimationController(
       vsync: this, duration: const Duration(milliseconds: 250));
     _fabScaleAnim = CurvedAnimation(parent: _fabAnimController, curve: Curves.easeOut);
@@ -72,6 +83,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     _lastSnapshot = ingredients;
     _draftControllers.clear();
     _draftUnits.clear();
+    _draftCategories.clear();
     _pendingDeletions.clear();
     for (final item in ingredients) {
       _draftControllers[item.id] = TextEditingController(
@@ -80,6 +92,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             : item.quantity.toString(),
       );
       _draftUnits[item.id] = item.quantityClassification;
+      _draftCategories[item.id] = item.classification;
     }
     _fabAnimController.reverse().then((_) {
       setState(() => _isEditing = true);
@@ -92,6 +105,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       for (final c in _draftControllers.values) { c.dispose(); }
       _draftControllers.clear();
       _draftUnits.clear();
+      _draftCategories.clear();
       _pendingDeletions.clear();
       setState(() => _isEditing = false);
       _fabAnimController.forward();
@@ -150,10 +164,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         final newQty = double.tryParse(ctrl.text);
         if (newQty == null) continue;
         final newUnit = _draftUnits[item.id] ?? item.quantityClassification;
-        if (newQty == item.quantity && newUnit == item.quantityClassification) continue;
+        final newCat = _draftCategories[item.id] ?? item.classification;
+        if (newQty == item.quantity && newUnit == item.quantityClassification && newCat == item.classification) continue;
         await _inventoryService.updateIngredient(Ingredient(
           id: item.id, name: item.name,
-          classification: item.classification,
+          classification: newCat,
           quantityClassification: newUnit,
           quantity: newQty,
         ));
@@ -297,16 +312,16 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 ),
                 const SizedBox(height: 12),
 
-                // ─── Filter Chips ───
+                // ─── Filter Chips (dynamic from Firestore) ───
                 SizedBox(
                   height: 42,
                   child: ListView.separated(
                     scrollDirection: Axis.horizontal,
                     padding: const EdgeInsets.symmetric(horizontal: 20),
-                    itemCount: _classifications.length,
+                    itemCount: _dynamicClassifications.length,
                     separatorBuilder: (_, i) => const SizedBox(width: 8),
                     itemBuilder: (context, index) {
-                      final c = _classifications[index];
+                      final c = _dynamicClassifications[index];
                       final isSelected = _selectedClassification == c;
                       return ChoiceChip(
                         label: Text(c),
@@ -346,7 +361,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     ),
                   ),
 
-                // ─── Content ───
+                // ─── Content: grouped by category ───
                 Expanded(
                   child: StreamBuilder<List<Ingredient>>(
                     stream: _inventoryStream,
@@ -363,10 +378,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       }
 
                       final ingredients = snapshot.data ?? [];
-
-                      // Keep snapshot in sync when not editing
                       if (!_isEditing) _lastSnapshot = ingredients;
 
+                      // Apply search + classification filter
                       final filtered = ingredients.where((item) {
                         final ms = item.name.toLowerCase().contains(_searchQuery);
                         final mc = _selectedClassification == 'All' ||
@@ -376,7 +390,36 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
                       final lowStock = ingredients.where((i) => i.isLowStock).toList();
 
+                      // Group filtered items by classification
+                      final Map<String, List<Ingredient>> grouped = {};
+                      for (final item in filtered) {
+                        (grouped[item.classification] ??= []).add(item);
+                      }
+                      // Build ordered list of non-empty category names
+                      final categoryOrder = _dynamicClassifications
+                          .where((c) => c != 'All' && grouped.containsKey(c))
+                          .toList();
+                      // Append any categories not in _dynamicClassifications
+                      for (final key in grouped.keys) {
+                        if (!categoryOrder.contains(key)) categoryOrder.add(key);
+                      }
+
+                      if (filtered.isEmpty) {
+                        return Center(child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.inventory_2_outlined,
+                                size: 64, color: Colors.grey.shade400),
+                            const SizedBox(height: 16),
+                            Text('No items found',
+                              style: GoogleFonts.inter(
+                                fontSize: 16, color: Colors.grey,
+                                fontWeight: FontWeight.w500)),
+                          ]));
+                      }
+
                       return Column(children: [
+                        // Low-stock banner
                         if (lowStock.isNotEmpty)
                           Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
@@ -404,49 +447,75 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                             ),
                           ),
 
+                        // Category folders
                         Expanded(
-                          child: filtered.isEmpty
-                              ? Center(child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(Icons.inventory_2_outlined,
-                                        size: 64, color: Colors.grey.shade400),
-                                    const SizedBox(height: 16),
-                                    Text('No items found',
-                                      style: GoogleFonts.inter(
-                                        fontSize: 16, color: Colors.grey,
-                                        fontWeight: FontWeight.w500)),
-                                  ]))
-                              : LayoutBuilder(
-                                  builder: (context, constraints) {
-                                    final columns = _gridColumns(constraints.maxWidth);
-                                    if (columns == 1) {
-                                      return ListView.builder(
-                                        padding: const EdgeInsets.fromLTRB(20, 4, 20, 100),
-                                        itemCount: filtered.length,
-                                        itemBuilder: (context, index) => _buildCard(
-                                          filtered[index], isDark, columns),
-                                      );
-                                    }
-                                    return GridView.builder(
-                                      padding: const EdgeInsets.fromLTRB(20, 4, 20, 100),
-                                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                                        crossAxisCount: columns,
-                                        crossAxisSpacing: 12,
-                                        mainAxisSpacing: 12,
-                                        childAspectRatio: _isEditing ? 2.6 : 2.2,
+                          child: ListView.builder(
+                            padding: const EdgeInsets.fromLTRB(12, 4, 12, 100),
+                            itemCount: categoryOrder.length,
+                            itemBuilder: (context, catIdx) {
+                              final catName = categoryOrder[catIdx];
+                              final catItems = grouped[catName]!;
+                              final catIcon = _getCategoryIcon(catName);
+
+                              return Card(
+                                margin: const EdgeInsets.only(bottom: 8),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16)),
+                                child: Theme(
+                                  data: Theme.of(context).copyWith(
+                                    dividerColor: Colors.transparent),
+                                  child: ExpansionTile(
+                                    initiallyExpanded: false,
+                                    tilePadding: const EdgeInsets.symmetric(
+                                      horizontal: 16, vertical: 4),
+                                    childrenPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                                    leading: Container(
+                                      width: 40, height: 40,
+                                      decoration: BoxDecoration(
+                                        color: isDark
+                                            ? Colors.grey.shade800
+                                            : Theme.of(context).primaryColor.withValues(alpha: 0.1),
+                                        borderRadius: BorderRadius.circular(10),
                                       ),
-                                      itemCount: filtered.length,
-                                      itemBuilder: (context, index) => _buildCard(
-                                        filtered[index], isDark, columns),
-                                    );
-                                  },
+                                      child: Icon(catIcon, size: 20,
+                                        color: Theme.of(context).primaryColor),
+                                    ),
+                                    title: Text(catName,
+                                      style: GoogleFonts.inter(
+                                        fontSize: 15, fontWeight: FontWeight.w700)),
+                                    trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 3),
+                                        decoration: BoxDecoration(
+                                          color: Theme.of(context).primaryColor.withValues(alpha: 0.12),
+                                          borderRadius: BorderRadius.circular(12),
+                                        ),
+                                        child: Text('${catItems.length}',
+                                          style: GoogleFonts.inter(
+                                            fontSize: 12, fontWeight: FontWeight.w700,
+                                            color: Theme.of(context).primaryColor)),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      const Icon(Icons.expand_more),
+                                    ]),
+                                    children: catItems.map((item) =>
+                                      Padding(
+                                        padding: const EdgeInsets.symmetric(vertical: 2),
+                                        child: _buildCard(item, isDark, 1),
+                                      ),
+                                    ).toList(),
+                                  ),
                                 ),
+                              );
+                            },
+                          ),
                         ),
                       ]);
                     },
                   ),
                 ),
+
               ],
             ),
           ),
@@ -458,6 +527,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   Widget _buildCard(Ingredient item, bool isDark, int columns) {
     final isMarked = _pendingDeletions.contains(item.id);
     final ctrl = _draftControllers[item.id];
+    final categoryChoices = _dynamicClassifications.where((c) => c != 'All').toList();
 
     return AnimatedOpacity(
       duration: const Duration(milliseconds: 200),
@@ -473,7 +543,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     ctrl: ctrl!,
                     isDark: isDark,
                     isMarked: isMarked,
-                    classificationIcon: _classificationIcon,
+                    categoryIcon: _getCategoryIcon(item.classification),
                     onToggleDelete: () => setState(() {
                       if (isMarked) { _pendingDeletions.remove(item.id); }
                       else { _pendingDeletions.add(item.id); }
@@ -483,12 +553,17 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     onUnitChanged: (val) => setState(() {
                       _draftUnits[item.id] = val;
                     }),
+                    currentCategory: _draftCategories[item.id] ?? item.classification,
+                    categoryOptions: categoryChoices,
+                    onCategoryChanged: (val) => setState(() {
+                      _draftCategories[item.id] = val;
+                    }),
                     fmt: _fmt,
                   )
                 : _HomeViewRow(
                     item: item,
                     isDark: isDark,
-                    classificationIcon: _classificationIcon,
+                    categoryIcon: _getCategoryIcon(item.classification),
                   ),
           ),
         ),
@@ -501,8 +576,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 class _HomeViewRow extends StatefulWidget {
   final Ingredient item;
   final bool isDark;
-  final IconData Function(String) classificationIcon;
-  const _HomeViewRow({required this.item, required this.isDark, required this.classificationIcon});
+  final IconData categoryIcon;
+  const _HomeViewRow({required this.item, required this.isDark, required this.categoryIcon});
   @override
   State<_HomeViewRow> createState() => _HomeViewRowState();
 }
@@ -528,7 +603,7 @@ class _HomeViewRowState extends State<_HomeViewRow> {
               color: isDark ? Colors.grey.shade800 : Colors.grey.shade100,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(widget.classificationIcon(item.classification), size: 22),
+            child: Icon(widget.categoryIcon, size: 22),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -602,23 +677,31 @@ class _HomeEditRow extends StatelessWidget {
   final TextEditingController ctrl;
   final bool isDark;
   final bool isMarked;
-  final IconData Function(String) classificationIcon;
+  final IconData categoryIcon;
   final VoidCallback onToggleDelete;
   final String currentUnit;
   final List<String> unitOptions;
   final ValueChanged<String> onUnitChanged;
+  final String currentCategory;
+  final List<String> categoryOptions;
+  final ValueChanged<String> onCategoryChanged;
   final String Function(double) fmt;
 
   const _HomeEditRow({
     required this.item, required this.ctrl, required this.isDark,
-    required this.isMarked, required this.classificationIcon,
+    required this.isMarked, required this.categoryIcon,
     required this.onToggleDelete, required this.currentUnit,
     required this.unitOptions, required this.onUnitChanged,
-    required this.fmt,
+    required this.currentCategory, required this.categoryOptions,
+    required this.onCategoryChanged, required this.fmt,
   });
 
   @override
   Widget build(BuildContext context) {
+    final effectiveCat = categoryOptions.contains(currentCategory)
+        ? currentCategory
+        : (categoryOptions.isNotEmpty ? categoryOptions.first : null);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -630,7 +713,7 @@ class _HomeEditRow extends StatelessWidget {
               color: isDark ? Colors.grey.shade800 : Colors.grey.shade100,
               borderRadius: BorderRadius.circular(10),
             ),
-            child: Icon(classificationIcon(item.classification), size: 18),
+            child: Icon(categoryIcon, size: 18),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -641,7 +724,26 @@ class _HomeEditRow extends StatelessWidget {
               maxLines: 2, overflow: TextOverflow.ellipsis),
           ),
         ]),
-        const SizedBox(height: 6),
+        // Category dropdown
+        if (categoryOptions.isNotEmpty)
+          SizedBox(
+            height: 26,
+            child: DropdownButton<String>(
+              value: effectiveCat,
+              isDense: true,
+              underline: const SizedBox.shrink(),
+              style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade600),
+              icon: Icon(Icons.arrow_drop_down, size: 14, color: Colors.grey.shade400),
+              items: categoryOptions.map((c) => DropdownMenuItem(
+                value: c,
+                child: Text(c, style: GoogleFonts.inter(fontSize: 10)),
+              )).toList(),
+              onChanged: isMarked ? null : (val) {
+                if (val != null) onCategoryChanged(val);
+              },
+            ),
+          ),
+        const SizedBox(height: 4),
         // Bottom row: unit dropdown + steppers + delete
         Row(children: [
           // Unit dropdown
@@ -713,6 +815,8 @@ class _HomeEditRow extends StatelessWidget {
     );
   }
 }
+
+
 
 class _SmallStepBtn extends StatelessWidget {
   final IconData icon;
