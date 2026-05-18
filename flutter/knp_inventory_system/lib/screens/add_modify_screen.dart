@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../models/ingredient.dart';
 import '../services/inventory_service.dart';
+import '../models/category_model.dart';
 
 class AddModifyScreen extends StatefulWidget {
   const AddModifyScreen({super.key});
@@ -13,31 +14,28 @@ class AddModifyScreen extends StatefulWidget {
 class _AddModifyScreenState extends State<AddModifyScreen> {
   final InventoryService _inventoryService = InventoryService();
   late final Stream<List<Ingredient>> _inventoryStream;
-  final _formKey = GlobalKey<FormState>();
+  late final Stream<List<CategoryModel>> _categoryStream;
 
-  final _nameController = TextEditingController();
-  final _quantityController = TextEditingController();
-  final _listScrollController = ScrollController();
-
-  String _selectedClassification = 'coffee bean';
-  final List<String> _classifications = [
-    'coffee bean', 'food product', 'dairy/non-dairy',
-    'syrup, sweeteners, flavorings', 'powders and blends', 'miscellaneous',
-  ];
-
-  String _searchQuery = '';
-  String _filterClassification = 'All';
-  final List<String> _filterClassifications = [
-    'All', 'coffee bean', 'food product', 'dairy/non-dairy',
-    'syrup, sweeteners, flavorings', 'powders and blends', 'miscellaneous',
-  ];
-
+  // ── Add-form selection state ──
+  String _selectedCategory = '';
   String _selectedQtyClassification = 'number';
   final List<String> _qtyClassifications = [
     'number', 'mg', 'kg', 'liters', 'milliliters',
   ];
 
+  // ── Edit-mode draft maps ──
+  final Map<String, String> _draftCategories = {};
+
+  final _nameController = TextEditingController();
+  final _quantityController = TextEditingController();
+  final _listScrollController = ScrollController();
+
+  String _searchQuery = '';
+  String _filterClassification = 'All';
+  List<String> _filterClassifications = ['All'];
+
   bool _isLoading = false;
+  final _formKey = GlobalKey<FormState>();
 
   // ── Edit Mode State ──
   bool _isEditing = false;
@@ -50,14 +48,14 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
     _lastSnapshot = ingredients;
     _draftControllers.clear();
     _draftUnits.clear();
+    _draftCategories.clear();
     _pendingDeletions.clear();
     for (final item in ingredients) {
       _draftControllers[item.id] = TextEditingController(
-        text: item.quantity % 1 == 0
-            ? item.quantity.toInt().toString()
-            : item.quantity.toString(),
+        text: item.quantity % 1 == 0 ? item.quantity.toInt().toString() : item.quantity.toString(),
       );
       _draftUnits[item.id] = item.quantityClassification;
+      _draftCategories[item.id] = item.classification;
     }
     setState(() => _isEditing = true);
   }
@@ -125,11 +123,12 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
         final newQty = double.tryParse(ctrl.text);
         if (newQty == null) continue;
         final newUnit = _draftUnits[item.id] ?? item.quantityClassification;
-        if (newQty == item.quantity && newUnit == item.quantityClassification) continue;
+        final newCat = _draftCategories[item.id] ?? item.classification;
+        if (newQty == item.quantity && newUnit == item.quantityClassification && newCat == item.classification) continue;
         await _inventoryService.updateIngredient(Ingredient(
           id: item.id,
           name: item.name,
-          classification: item.classification,
+          classification: newCat,
           quantityClassification: newUnit,
           quantity: newQty,
         ));
@@ -176,8 +175,9 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
           return;
         }
         await _inventoryService.addIngredient(Ingredient(
-          id: '', name: newNameRaw,
-          classification: _selectedClassification,
+          id: '',
+          name: newNameRaw,
+          classification: _selectedCategory,
           quantityClassification: _selectedQtyClassification,
           quantity: double.parse(_quantityController.text.trim()),
         ));
@@ -200,10 +200,39 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
     }
   }
 
+  // ───────────────────────────────────────────
+  // Manage Categories Modal
+  // ───────────────────────────────────────────
+  void _showManageCategoriesModal(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => _ManageCategoriesSheet(
+        inventoryService: _inventoryService,
+        // Fresh stream each open → new Firestore listener → immediate data emit
+        categoryStream: _inventoryService.getCategoriesStream(),
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
     _inventoryStream = _inventoryService.getInventoryStream();
+    _categoryStream = _inventoryService.getCategoriesStream();
+    // Populate category dropdown & filter chips once loaded
+    _categoryStream.listen((cats) {
+      if (!mounted) return;
+      setState(() {
+        _filterClassifications = ['All', ...cats.map((c) => c.name)];
+        if (_selectedCategory.isEmpty && cats.isNotEmpty) {
+          _selectedCategory = cats.first.name;
+        }
+      });
+    });
   }
 
   @override
@@ -272,17 +301,35 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
                               validator: (v) => v!.isEmpty ? 'Required' : null,
                             ),
                             const SizedBox(height: 14),
-                            DropdownButtonFormField<String>(
-                              initialValue: _selectedClassification,
-                              isExpanded: true,
-                              decoration: const InputDecoration(
-                                labelText: 'Classification',
-                                prefixIcon: Icon(Icons.category_outlined),
-                              ),
-                              items: _classifications.map((c) =>
-                                DropdownMenuItem(value: c, child: Text(c, overflow: TextOverflow.ellipsis)),
-                              ).toList(),
-                              onChanged: (val) => setState(() => _selectedClassification = val!),
+                            StreamBuilder<List<CategoryModel>>(
+                              stream: _categoryStream,
+                              builder: (context, catSnap) {
+                                final cats = catSnap.data ?? [];
+                                
+                                String? effectiveCategory = _selectedCategory;
+                                if (effectiveCategory.isEmpty || !cats.any((c) => c.name == effectiveCategory)) {
+                                  effectiveCategory = cats.isNotEmpty ? cats.first.name : null;
+                                }
+
+                                return DropdownButtonFormField<String>(
+                                  value: effectiveCategory,
+                                  isExpanded: true,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Category',
+                                    prefixIcon: Icon(Icons.category_outlined),
+                                  ),
+                                  validator: (v) => (v == null || v.isEmpty) ? 'Select a category' : null,
+                                  items: cats.map((c) => DropdownMenuItem(
+                                    value: c.name,
+                                    child: Row(children: [
+                                      Icon(c.icon, size: 16),
+                                      const SizedBox(width: 8),
+                                      Expanded(child: Text(c.name, overflow: TextOverflow.ellipsis)),
+                                    ]),
+                                  )).toList(),
+                                  onChanged: (val) => setState(() => _selectedCategory = val ?? ''),
+                                );
+                              },
                             ),
                             const SizedBox(height: 14),
                             Row(children: [
@@ -308,7 +355,7 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
                                   items: _qtyClassifications.map((c) =>
                                     DropdownMenuItem(value: c, child: Text(c, overflow: TextOverflow.ellipsis)),
                                   ).toList(),
-                                  onChanged: (val) => setState(() => _selectedQtyClassification = val!),
+                                  onChanged: (val) => setState(() => _selectedQtyClassification = val ?? 'number'),
                                 ),
                               ),
                             ]),
@@ -345,12 +392,20 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
                       child: Text('Existing Ingredients',
                         style: GoogleFonts.inter(fontSize: 17, fontWeight: FontWeight.w700)),
                     ),
+                    TextButton.icon(
+                      onPressed: () => _showManageCategoriesModal(context),
+                      icon: const Icon(Icons.category_outlined, size: 18),
+                      label: const Text('Categories'),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      ),
+                    ),
                   ]),
                   const SizedBox(height: 4),
                   Text(
                     _isEditing
-                        ? 'Use +/- or type directly. Tap 🗑 to mark for deletion.'
-                        : 'Tap "Edit" to manage stock quantities.',
+                        ? 'Edit quantity, unit, and category per item. Tap 🗑 to delete.'
+                        : 'Tap "Edit" to manage stock. Tap "Categories" to add or remove categories.',
                     style: GoogleFonts.inter(fontSize: 13, color: Colors.grey),
                   ),
                   const SizedBox(height: 12),
@@ -560,8 +615,13 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
                                                 isMarkedForDelete: isMarkedForDelete,
                                                 currentUnit: _draftUnits[item.id] ?? item.quantityClassification,
                                                 unitOptions: _qtyClassifications,
+                                                currentCategory: _draftCategories[item.id] ?? item.classification,
+                                                categoryOptions: _filterClassifications.where((c) => c != 'All').toList(),
                                                 onUnitChanged: (val) => setState(() {
                                                   _draftUnits[item.id] = val;
+                                                }),
+                                                onCategoryChanged: (val) => setState(() {
+                                                  _draftCategories[item.id] = val;
                                                 }),
                                                 onToggleDelete: () => setState(() {
                                                   if (isMarkedForDelete) {
@@ -644,7 +704,10 @@ class _EditRow extends StatelessWidget {
   final bool isMarkedForDelete;
   final String currentUnit;
   final List<String> unitOptions;
+  final String currentCategory;
+  final List<String> categoryOptions;
   final ValueChanged<String> onUnitChanged;
+  final ValueChanged<String> onCategoryChanged;
   final VoidCallback onToggleDelete;
 
   const _EditRow({
@@ -654,7 +717,10 @@ class _EditRow extends StatelessWidget {
     required this.isMarkedForDelete,
     required this.currentUnit,
     required this.unitOptions,
+    required this.currentCategory,
+    required this.categoryOptions,
     required this.onUnitChanged,
+    required this.onCategoryChanged,
     required this.onToggleDelete,
   });
 
@@ -662,6 +728,10 @@ class _EditRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final effectiveCategory = categoryOptions.contains(currentCategory)
+        ? currentCategory
+        : (categoryOptions.isNotEmpty ? categoryOptions.first : null);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -674,7 +744,27 @@ class _EditRow extends StatelessWidget {
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 4),
+        // Category dropdown
+        if (categoryOptions.isNotEmpty)
+          SizedBox(
+            height: 28,
+            child: DropdownButton<String>(
+              value: effectiveCategory,
+              isDense: true,
+              underline: const SizedBox.shrink(),
+              style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade600),
+              icon: Icon(Icons.arrow_drop_down, size: 16, color: Colors.grey.shade400),
+              items: categoryOptions.map((c) => DropdownMenuItem(
+                value: c,
+                child: Text(c, style: GoogleFonts.inter(fontSize: 11)),
+              )).toList(),
+              onChanged: isMarkedForDelete ? null : (val) {
+                if (val != null) onCategoryChanged(val);
+              },
+            ),
+          ),
+        const SizedBox(height: 4),
         // Controls row: unit dropdown + steppers + delete
         Row(children: [
           // Unit dropdown
@@ -748,6 +838,8 @@ class _EditRow extends StatelessWidget {
   }
 }
 
+
+
 class _StepperBtn extends StatelessWidget {
   final IconData icon;
   final Color color;
@@ -768,3 +860,266 @@ class _StepperBtn extends StatelessWidget {
     );
   }
 }
+
+// ─── Manage Categories Bottom Sheet ───
+class _ManageCategoriesSheet extends StatefulWidget {
+  final InventoryService inventoryService;
+  final Stream<List<CategoryModel>> categoryStream;
+  const _ManageCategoriesSheet({required this.inventoryService, required this.categoryStream});
+
+  @override
+  State<_ManageCategoriesSheet> createState() => _ManageCategoriesSheetState();
+}
+
+class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
+  final _addNameCtrl = TextEditingController();
+  String _addIconKey = 'inventory_2';
+  // Map of category id → edit state
+  final Map<String, TextEditingController> _editCtrls = {};
+  final Map<String, String> _editIconKeys = {};
+  String? _expandedId; // which card is in edit mode
+
+  @override
+  void dispose() {
+    _addNameCtrl.dispose();
+    for (final c in _editCtrls.values) { c.dispose(); }
+    super.dispose();
+  }
+
+  Future<void> _addCategory() async {
+    final name = _addNameCtrl.text.trim();
+    if (name.isEmpty) return;
+    await widget.inventoryService.addCategory(
+      CategoryModel(id: '', name: name, iconString: _addIconKey),
+    );
+    _addNameCtrl.clear();
+    setState(() => _addIconKey = 'inventory_2');
+  }
+
+  Future<void> _saveEdit(CategoryModel cat) async {
+    final ctrl = _editCtrls[cat.id];
+    if (ctrl == null) return;
+    final newName = ctrl.text.trim();
+    final newIcon = _editIconKeys[cat.id] ?? cat.iconString;
+    if (newName.isEmpty) return;
+    await widget.inventoryService.renameCategory(cat.id, cat.name, newName, newIcon);
+    setState(() => _expandedId = null);
+  }
+
+  Future<void> _deleteCategory(CategoryModel cat) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text('Delete "${cat.name}"?',
+          style: GoogleFonts.inter(fontWeight: FontWeight.w700)),
+        content: Text(
+          'All items in this category will be moved to "Uncategorized".',
+          style: GoogleFonts.inter(fontSize: 14, color: Colors.grey.shade600),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade700, foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await widget.inventoryService.deleteCategory(cat.id, cat.name);
+    }
+  }
+
+  Widget _iconPicker(String selectedKey, ValueChanged<String> onPick) {
+    final icons = CategoryModel.iconMap;
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: icons.entries.map((e) {
+        final isSelected = e.key == selectedKey;
+        return GestureDetector(
+          onTap: () => onPick(e.key),
+          child: Container(
+            width: 40, height: 40,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              color: isSelected ? Theme.of(context).primaryColor.withValues(alpha: 0.15) : Colors.grey.withValues(alpha: 0.1),
+              border: isSelected ? Border.all(color: Theme.of(context).primaryColor, width: 2) : null,
+            ),
+            child: Icon(e.value,
+              size: 22,
+              color: isSelected ? Theme.of(context).primaryColor : Colors.grey.shade600),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.9,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (ctx, scrollCtrl) => Column(
+        children: [
+          // Handle
+          Container(
+            margin: const EdgeInsets.only(top: 12, bottom: 8),
+            width: 40, height: 4,
+            decoration: BoxDecoration(
+              color: Colors.grey.shade400,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(children: [
+              Icon(Icons.category_outlined, color: Theme.of(context).primaryColor),
+              const SizedBox(width: 10),
+              Text('Manage Categories',
+                style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.w700)),
+            ]),
+          ),
+          const SizedBox(height: 12),
+          // Add new category
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Add New Category',
+                  style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey)),
+                const SizedBox(height: 8),
+                Row(children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _addNameCtrl,
+                      decoration: InputDecoration(
+                        hintText: 'Category name...',
+                        isDense: true,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: _addCategory,
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    child: const Icon(Icons.add, size: 20),
+                  ),
+                ]),
+                const SizedBox(height: 8),
+                Text('Icon:', style: GoogleFonts.inter(fontSize: 12, color: Colors.grey)),
+                const SizedBox(height: 6),
+                _iconPicker(_addIconKey, (k) => setState(() => _addIconKey = k)),
+              ],
+            ),
+          ),
+          const Divider(height: 24),
+          // Existing categories list
+          Expanded(
+            child: StreamBuilder<List<CategoryModel>>(
+              stream: widget.categoryStream,
+              builder: (context, snap) {
+                final cats = snap.data ?? [];
+                if (cats.isEmpty) {
+                  return Center(
+                    child: Text('No categories yet.',
+                      style: GoogleFonts.inter(color: Colors.grey)),
+                  );
+                }
+                return ListView.builder(
+                  controller: scrollCtrl,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  itemCount: cats.length,
+                  itemBuilder: (context, i) {
+                    final cat = cats[i];
+                    final isExpanded = _expandedId == cat.id;
+
+                    // Initialise edit controllers on demand
+                    if (!_editCtrls.containsKey(cat.id)) {
+                      _editCtrls[cat.id] = TextEditingController(text: cat.name);
+                      _editIconKeys[cat.id] = cat.iconString;
+                    }
+
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          children: [
+                            Row(children: [
+                              Icon(cat.icon, size: 22, color: Theme.of(context).primaryColor),
+                              const SizedBox(width: 12),
+                              Expanded(child: Text(cat.name,
+                                style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w600))),
+                              IconButton(
+                                icon: Icon(isExpanded ? Icons.expand_less : Icons.edit_outlined, size: 20),
+                                tooltip: 'Edit',
+                                onPressed: () => setState(() {
+                                  _expandedId = isExpanded ? null : cat.id;
+                                  // reset edit ctrl to current name
+                                  _editCtrls[cat.id]!.text = cat.name;
+                                  _editIconKeys[cat.id] = cat.iconString;
+                                }),
+                              ),
+                              IconButton(
+                                icon: Icon(Icons.delete_outline, size: 20, color: Colors.red.shade400),
+                                tooltip: 'Delete',
+                                onPressed: () => _deleteCategory(cat),
+                              ),
+                            ]),
+                            if (isExpanded) ...[ 
+                              const SizedBox(height: 12),
+                              TextField(
+                                controller: _editCtrls[cat.id],
+                                decoration: InputDecoration(
+                                  labelText: 'Name',
+                                  isDense: true,
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text('Icon:', style: GoogleFonts.inter(fontSize: 12, color: Colors.grey)),
+                              const SizedBox(height: 6),
+                              _iconPicker(_editIconKeys[cat.id] ?? cat.iconString, (k) {
+                                setState(() => _editIconKeys[cat.id] = k);
+                              }),
+                              const SizedBox(height: 12),
+                              SizedBox(
+                                width: double.infinity,
+                                child: ElevatedButton.icon(
+                                  onPressed: () => _saveEdit(cat),
+                                  icon: const Icon(Icons.save_outlined, size: 18),
+                                  label: const Text('Save Changes'),
+                                  style: ElevatedButton.styleFrom(
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
