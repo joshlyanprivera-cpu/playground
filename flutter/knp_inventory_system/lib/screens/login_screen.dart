@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../services/auth_service.dart';
-import 'auth_loading_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -42,6 +41,35 @@ class _LoginScreenState extends State<LoginScreen>
     super.dispose();
   }
 
+  void _showAuthError(Object error) {
+    final message = AuthService.authErrorMessage(error);
+    if (AuthService.isNotRegisteredError(error)) {
+      _showNotRegisteredDialog(message);
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
+  Future<void> _showNotRegisteredDialog(String message) async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Account not registered'),
+        content: Text(
+          '$message\n\nOnly administrators can add new accounts.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _handleLogin() async {
     if (_emailController.text.trim().isEmpty ||
         _passwordController.text.trim().isEmpty) {
@@ -56,17 +84,9 @@ class _LoginScreenState extends State<LoginScreen>
         _emailController.text.trim(),
         _passwordController.text.trim(),
       );
-      if (mounted) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const AuthLoadingScreen()),
-        );
-      }
+      // AuthGate listens to authStateChanges and shows AuthLoadingScreen.
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Login failed: ${e.toString()}')),
-        );
-      }
+      if (mounted) _showAuthError(e);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -75,18 +95,10 @@ class _LoginScreenState extends State<LoginScreen>
   void _handleGoogleLogin() async {
     setState(() => _isLoading = true);
     try {
-      final user = await _authService.signInWithGoogle();
-      if (user != null && mounted) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const AuthLoadingScreen()),
-        );
-      }
+      await _authService.signInWithGoogle();
+      // AuthGate listens to authStateChanges and shows AuthLoadingScreen.
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Google Login failed: ${e.toString()}')),
-        );
-      }
+      if (mounted) _showAuthError(e);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -216,6 +228,16 @@ class _LoginScreenState extends State<LoginScreen>
                           ),
                         ],
                       ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    "Don't have an account? Contact your administrator to be added, then sign in here.",
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.inter(
+                      fontSize: 13,
+                      color: Colors.grey,
+                      height: 1.4,
                     ),
                   ),
                   const SizedBox(height: 32),

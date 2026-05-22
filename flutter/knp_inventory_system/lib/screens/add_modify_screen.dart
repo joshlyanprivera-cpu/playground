@@ -1,8 +1,10 @@
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../models/ingredient.dart';
 import '../services/inventory_service.dart';
 import '../models/category_model.dart';
+import '../utils/inventory_validators.dart';
 
 class AddModifyScreen extends StatefulWidget {
   const AddModifyScreen({super.key});
@@ -19,9 +21,7 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
   // ── Add-form selection state ──
   String _selectedCategory = '';
   String _selectedQtyClassification = 'number';
-  final List<String> _qtyClassifications = [
-    'number', 'mg', 'kg', 'liters', 'milliliters',
-  ];
+  final List<String> _qtyClassifications = InventoryValidators.quantityUnits;
 
   // ── Edit-mode draft maps ──
   final Map<String, String> _draftCategories = {};
@@ -120,10 +120,20 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
         if (_pendingDeletions.contains(item.id)) continue;
         final ctrl = _draftControllers[item.id];
         if (ctrl == null) continue;
-        final newQty = double.tryParse(ctrl.text);
-        if (newQty == null) continue;
+        final newQty = InventoryValidators.parseQuantity(ctrl.text);
+        if (newQty == null) {
+          throw InventoryValidationException(
+            'Invalid quantity for "${item.name}".',
+          );
+        }
         final newUnit = _draftUnits[item.id] ?? item.quantityClassification;
         final newCat = _draftCategories[item.id] ?? item.classification;
+        if (InventoryValidators.validateQuantityUnit(newUnit) != null ||
+            InventoryValidators.validateClassification(newCat) != null) {
+          throw InventoryValidationException(
+            'Invalid data for "${item.name}".',
+          );
+        }
         if (newQty == item.quantity && newUnit == item.quantityClassification && newCat == item.classification) continue;
         await _inventoryService.updateIngredient(Ingredient(
           id: item.id,
@@ -138,10 +148,14 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
           const SnackBar(content: Text('Changes saved successfully!')),
         );
       }
-    } catch (e) {
+    } catch (e, st) {
+      if (kDebugMode) debugPrint('Save edits failed: $e\n$st');
       if (mounted) {
+        final message = e is InventoryValidationException
+            ? e.message
+            : InventoryValidators.userSafeErrorMessage(e);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving changes: $e')),
+          SnackBar(content: Text(message)),
         );
       }
     } finally {
@@ -161,6 +175,10 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
       try {
         final newNameRaw = _nameController.text.trim();
         final newNameLower = newNameRaw.toLowerCase();
+        final qty = InventoryValidators.parseQuantity(_quantityController.text);
+        if (qty == null) {
+          throw InventoryValidationException('Enter a valid quantity.');
+        }
         final existingSnapshot = await _inventoryService.getInventoryStream().first;
         final isDuplicate = existingSnapshot.any((item) => item.name.toLowerCase() == newNameLower);
         if (isDuplicate) {
@@ -179,7 +197,7 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
           name: newNameRaw,
           classification: _selectedCategory,
           quantityClassification: _selectedQtyClassification,
-          quantity: double.parse(_quantityController.text.trim()),
+          quantity: qty,
         ));
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -188,10 +206,14 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
           _nameController.clear();
           _quantityController.clear();
         }
-      } catch (e) {
+      } catch (e, st) {
+        if (kDebugMode) debugPrint('Add ingredient failed: $e\n$st');
         if (mounted) {
+          final message = e is InventoryValidationException
+              ? e.message
+              : InventoryValidators.userSafeErrorMessage(e);
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error: $e')),
+            SnackBar(content: Text(message)),
           );
         }
       } finally {
@@ -298,7 +320,7 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
                                 labelText: 'Name',
                                 prefixIcon: Icon(Icons.label_outline),
                               ),
-                              validator: (v) => v!.isEmpty ? 'Required' : null,
+                              validator: InventoryValidators.validateIngredientName,
                             ),
                             const SizedBox(height: 14),
                             StreamBuilder<List<CategoryModel>>(
@@ -312,13 +334,13 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
                                 }
 
                                 return DropdownButtonFormField<String>(
-                                  value: effectiveCategory,
+                                  initialValue: effectiveCategory,
                                   isExpanded: true,
                                   decoration: const InputDecoration(
                                     labelText: 'Category',
                                     prefixIcon: Icon(Icons.category_outlined),
                                   ),
-                                  validator: (v) => (v == null || v.isEmpty) ? 'Select a category' : null,
+                                  validator: InventoryValidators.validateClassification,
                                   items: cats.map((c) => DropdownMenuItem(
                                     value: c.name,
                                     child: Row(children: [
@@ -342,7 +364,7 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
                                     prefixIcon: Icon(Icons.numbers_outlined),
                                   ),
                                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                  validator: (v) => v!.isEmpty ? 'Required' : null,
+                                  validator: InventoryValidators.validateQuantityString,
                                 ),
                               ),
                               const SizedBox(width: 12),
@@ -792,7 +814,7 @@ class _EditRow extends StatelessWidget {
             color: Colors.red.shade700,
             bg: Colors.red.withValues(alpha: 0.1),
             onPressed: isMarkedForDelete ? null : () {
-              double v = double.tryParse(ctrl.text) ?? 0;
+              final v = InventoryValidators.parseQuantity(ctrl.text) ?? 0;
               if (v > 0) { ctrl.text = _fmt(v - 1); }
             },
           ),
@@ -817,8 +839,11 @@ class _EditRow extends StatelessWidget {
             color: Colors.green.shade700,
             bg: Colors.green.withValues(alpha: 0.1),
             onPressed: isMarkedForDelete ? null : () {
-              double v = double.tryParse(ctrl.text) ?? 0;
-              ctrl.text = _fmt(v + 1);
+              final v = InventoryValidators.parseQuantity(ctrl.text) ?? 0;
+              final next = v + 1;
+              if (InventoryValidators.validateQuantity(next) == null) {
+                ctrl.text = _fmt(next);
+              }
             },
           ),
           const SizedBox(width: 4),

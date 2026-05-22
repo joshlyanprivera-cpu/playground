@@ -1,0 +1,111 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.email == 'admin@knp.com';
+    }
+
+    function isActiveEmployee() {
+      return isAdmin() || (
+        isSignedIn()
+        && exists(/databases/$(database)/documents/employees/$(request.auth.uid))
+        && get(/databases/$(database)/documents/employees/$(request.auth.uid)).data.active == true
+      );
+    }
+
+    function validEmployeeCreate(data) {
+      return data.keys().hasOnly(['email', 'displayName', 'active', 'addedAt'])
+        && data.active == false
+        && data.email is string
+        && data.email.size() > 0
+        && (!('displayName' in data) || data.displayName is string)
+        && data.addedAt is timestamp;
+    }
+
+    function validEmployeeAdminUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['active'])
+        && request.resource.data.active is bool;
+    }
+
+    function validQuantityUnit(unit) {
+      return unit in ['number', 'mg', 'kg', 'liters', 'milliliters'];
+    }
+
+    function validCategoryIcon(icon) {
+      return icon in [
+        'inventory_2', 'coffee', 'fastfood', 'local_cafe', 'lunch_dining',
+        'set_meal', 'cake', 'icecream', 'local_bar', 'liquor', 'water_drop',
+        'blender', 'kitchen', 'microwave', 'grain', 'spa', 'eco', 'grass',
+        'local_florist', 'bakery_dining', 'breakfast_dining', 'bubble_chart',
+        'category', 'star', 'bookmark', 'label', 'widgets', 'storage',
+        'science', 'local_grocery_store'
+      ];
+    }
+
+    function validInventoryData(data) {
+      return data.keys().hasAll([
+          'name', 'classification', 'quantityClassification', 'quantity', 'lastUpdated'
+        ])
+        && data.keys().hasOnly([
+          'name', 'classification', 'quantityClassification', 'quantity',
+          'lastUpdated', 'lastUpdatedBy'
+        ])
+        && data.name is string
+        && data.name.size() > 0
+        && data.name.size() <= 200
+        && data.classification is string
+        && data.classification.size() > 0
+        && data.classification.size() <= 100
+        && data.quantityClassification is string
+        && validQuantityUnit(data.quantityClassification)
+        && data.quantity is number
+        && data.quantity >= 0
+        && data.quantity <= 1000000
+        && data.lastUpdated is timestamp
+        && (!('lastUpdatedBy' in data) || data.lastUpdatedBy == request.auth.uid);
+    }
+
+    function validCategoryData(data) {
+      return data.keys().hasAll(['name', 'iconString'])
+        && data.keys().hasOnly(['name', 'iconString'])
+        && data.name is string
+        && data.name.size() > 0
+        && data.name.size() <= 100
+        && data.iconString is string
+        && validCategoryIcon(data.iconString);
+    }
+
+    match /employees/{uid} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+      allow create: if isSignedIn()
+        && request.auth.uid == uid
+        && validEmployeeCreate(request.resource.data);
+      allow update: if isAdmin() && validEmployeeAdminUpdate();
+      allow delete: if false;
+    }
+
+    match /inventory/{docId} {
+      allow read: if isActiveEmployee();
+      allow create: if isActiveEmployee()
+        && validInventoryData(request.resource.data);
+      allow update: if isActiveEmployee()
+        && validInventoryData(request.resource.data);
+      allow delete: if isActiveEmployee();
+    }
+
+    match /categories/{docId} {
+      allow read: if isActiveEmployee();
+      allow create: if isActiveEmployee()
+        && validCategoryData(request.resource.data);
+      allow update: if isActiveEmployee()
+        && validCategoryData(request.resource.data);
+      allow delete: if isActiveEmployee();
+    }
+  }
+}

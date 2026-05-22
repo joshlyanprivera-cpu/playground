@@ -3,7 +3,8 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
 import '../services/auth_service.dart';
-import 'login_screen.dart';
+import '../utils/admin_utils.dart';
+import 'manage_employees_screen.dart';
 
 class UserProfileScreen extends StatelessWidget {
   const UserProfileScreen({super.key});
@@ -173,6 +174,54 @@ class UserProfileScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 10),
+              if (AdminUtils.isAdmin(user)) ...[
+                Card(
+                  child: InkWell(
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const ManageEmployeesScreen(),
+                        ),
+                      );
+                    },
+                    borderRadius: BorderRadius.circular(20),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 16),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Theme.of(context)
+                                  .primaryColor
+                                  .withAlpha(25),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Icon(
+                              Icons.manage_accounts_outlined,
+                              color: Theme.of(context).primaryColor,
+                              size: 20,
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Text(
+                            'Manage Employees',
+                            style: GoogleFonts.inter(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const Spacer(),
+                          Icon(Icons.chevron_right,
+                              color: Colors.grey.shade400),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+              ],
               Card(
                 child: InkWell(
                   onTap: () async {
@@ -213,12 +262,7 @@ class UserProfileScreen extends StatelessWidget {
 
                     if (confirmed == true) {
                       await authService.signOut();
-                      if (context.mounted) {
-                        Navigator.of(context).pushReplacement(
-                          MaterialPageRoute(
-                              builder: (_) => const LoginScreen()),
-                        );
-                      }
+                      // AuthGate in main.dart routes to LoginScreen.
                     }
                   },
                   borderRadius: BorderRadius.circular(20),

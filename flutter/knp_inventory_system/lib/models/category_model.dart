@@ -34,6 +34,9 @@ class CategoryModel {
 
   /// Curated set of professional Material icons for categories.
   static const Map<String, IconData> iconMap = _iconMap;
+
+  /// Icon keys allowed by [firestore.rules].
+  static Set<String> get allowedIconKeys => _iconMap.keys.toSet();
 }
 
 const Map<String, IconData> _iconMap = {

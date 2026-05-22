@@ -1,0 +1,11 @@
+{
+  "name": "knp-firestore-rules-test",
+  "private": true,
+  "scripts": {
+    "test": "firebase emulators:exec --only firestore --project knp-inventory \"node test/rules.test.js\""
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^4.0.1",
+    "firebase": "^11.6.0"
+  }
+}

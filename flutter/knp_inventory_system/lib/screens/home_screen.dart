@@ -1,8 +1,10 @@
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../services/inventory_service.dart';
 import '../models/ingredient.dart';
 import '../models/category_model.dart';
+import '../utils/inventory_validators.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -161,10 +163,20 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         if (_pendingDeletions.contains(item.id)) continue;
         final ctrl = _draftControllers[item.id];
         if (ctrl == null) continue;
-        final newQty = double.tryParse(ctrl.text);
-        if (newQty == null) continue;
+        final newQty = InventoryValidators.parseQuantity(ctrl.text);
+        if (newQty == null) {
+          throw InventoryValidationException(
+            'Invalid quantity for "${item.name}".',
+          );
+        }
         final newUnit = _draftUnits[item.id] ?? item.quantityClassification;
         final newCat = _draftCategories[item.id] ?? item.classification;
+        if (InventoryValidators.validateQuantityUnit(newUnit) != null ||
+            InventoryValidators.validateClassification(newCat) != null) {
+          throw InventoryValidationException(
+            'Invalid data for "${item.name}".',
+          );
+        }
         if (newQty == item.quantity && newUnit == item.quantityClassification && newCat == item.classification) continue;
         await _inventoryService.updateIngredient(Ingredient(
           id: item.id, name: item.name,
@@ -178,10 +190,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           const SnackBar(content: Text('Changes saved!')),
         );
       }
-    } catch (e) {
+    } catch (e, st) {
+      if (kDebugMode) debugPrint('Save edits failed: $e\n$st');
       if (mounted) {
+        final message = e is InventoryValidationException
+            ? e.message
+            : InventoryValidators.userSafeErrorMessage(e);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
+          SnackBar(content: Text(message)),
         );
       }
     } finally {
@@ -770,7 +786,7 @@ class _HomeEditRow extends StatelessWidget {
             icon: Icons.remove, color: Colors.red.shade700,
             bg: Colors.red.withValues(alpha: 0.1),
             onPressed: isMarked ? null : () {
-              double v = double.tryParse(ctrl.text) ?? 0;
+              final v = InventoryValidators.parseQuantity(ctrl.text) ?? 0;
               if (v > 0) { ctrl.text = fmt(v - 1); }
             },
           ),
@@ -794,8 +810,11 @@ class _HomeEditRow extends StatelessWidget {
             icon: Icons.add, color: Colors.green.shade700,
             bg: Colors.green.withValues(alpha: 0.1),
             onPressed: isMarked ? null : () {
-              double v = double.tryParse(ctrl.text) ?? 0;
-              ctrl.text = fmt(v + 1);
+              final v = InventoryValidators.parseQuantity(ctrl.text) ?? 0;
+              final next = v + 1;
+              if (InventoryValidators.validateQuantity(next) == null) {
+                ctrl.text = fmt(next);
+              }
             },
           ),
           // Delete toggle

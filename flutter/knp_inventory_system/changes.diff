@@ -1,0 +1,1321 @@
+﻿diff --git a/flutter/knp_inventory_system/.gitignore b/flutter/knp_inventory_system/.gitignore
+index 3820a95..a87550e 100644
+--- a/flutter/knp_inventory_system/.gitignore
++++ b/flutter/knp_inventory_system/.gitignore
+@@ -43,3 +43,8 @@ app.*.map.json
+ /android/app/debug
+ /android/app/profile
+ /android/app/release
++
++# Release signing (see android/key.properties.example)
++/android/key.properties
++*.jks
++*.keystore
+diff --git a/flutter/knp_inventory_system/android/app/build.gradle.kts b/flutter/knp_inventory_system/android/app/build.gradle.kts
+index 1faddad..cbe7f64 100644
+--- a/flutter/knp_inventory_system/android/app/build.gradle.kts
++++ b/flutter/knp_inventory_system/android/app/build.gradle.kts
+@@ -1,3 +1,5 @@
++import java.util.Properties
++
+ plugins {
+     id("com.android.application")
+     // START: FlutterFire Configuration
+@@ -8,6 +10,12 @@ plugins {
+     id("dev.flutter.flutter-gradle-plugin")
+ }
+ 
++val keystorePropertiesFile = rootProject.file("key.properties")
++val keystoreProperties = Properties()
++if (keystorePropertiesFile.exists()) {
++    keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
++}
++
+ android {
+     namespace = "com.example.knp_inventory_system"
+     compileSdk = flutter.compileSdkVersion
+@@ -25,19 +33,30 @@ android {
+     defaultConfig {
+         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
+         applicationId = "com.example.knp_inventory_system"
+-        // You can update the following values to match your application needs.
+-        // For more information, see: https://flutter.dev/to/review-gradle-config.
+         minSdk = flutter.minSdkVersion
+         targetSdk = flutter.targetSdkVersion
+         versionCode = flutter.versionCode
+         versionName = flutter.versionName
+     }
+ 
++    signingConfigs {
++        if (keystorePropertiesFile.exists()) {
++            create("release") {
++                keyAlias = keystoreProperties["keyAlias"] as String
++                keyPassword = keystoreProperties["keyPassword"] as String
++                storeFile = file(keystoreProperties["storeFile"] as String)
++                storePassword = keystoreProperties["storePassword"] as String
++            }
++        }
++    }
++
+     buildTypes {
+         release {
+-            // TODO: Add your own signing config for the release build.
+-            // Signing with the debug keys for now, so `flutter run --release` works.
+-            signingConfig = signingConfigs.getByName("debug")
++            signingConfig = if (keystorePropertiesFile.exists()) {
++                signingConfigs.getByName("release")
++            } else {
++                signingConfigs.getByName("debug")
++            }
+         }
+     }
+ }
+diff --git a/flutter/knp_inventory_system/firebase.json b/flutter/knp_inventory_system/firebase.json
+index b8a7fb8..1be44c0 100644
+--- a/flutter/knp_inventory_system/firebase.json
++++ b/flutter/knp_inventory_system/firebase.json
+@@ -1 +1,11 @@
+-{"flutter":{"platforms":{"android":{"default":{"projectId":"knp-inventory","appId":"1:870135094746:android:8de67c2d7702063f38f4e3","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"knp-inventory","configurations":{"android":"1:870135094746:android:8de67c2d7702063f38f4e3","ios":"1:870135094746:ios:2c4c184926b342da38f4e3","macos":"1:870135094746:ios:2c4c184926b342da38f4e3","web":"1:870135094746:web:a5c6674e3276db6038f4e3"}}}}}}
+\ No newline at end of file
++{
++  "firestore": {
++    "rules": "firestore.rules",
++    "indexes": "firestore.indexes.json"
++  },
++  "emulators": {
++    "firestore": {
++      "port": 8080
++    }
++  }
++}
+diff --git a/flutter/knp_inventory_system/lib/main.dart b/flutter/knp_inventory_system/lib/main.dart
+index 4c2b59c..0e704fb 100644
+--- a/flutter/knp_inventory_system/lib/main.dart
++++ b/flutter/knp_inventory_system/lib/main.dart
+@@ -1,22 +1,55 @@
++import 'package:flutter/foundation.dart'
++    show debugPrint, kDebugMode, kIsWeb, kReleaseMode;
+ import 'package:flutter/material.dart';
+ import 'package:firebase_core/firebase_core.dart';
++import 'package:firebase_app_check/firebase_app_check.dart';
+ import 'package:provider/provider.dart';
+ import 'package:firebase_auth/firebase_auth.dart';
+ import 'firebase_options.dart';
+ import 'theme/app_theme.dart';
++import 'services/auth_service.dart';
+ import 'screens/auth_loading_screen.dart';
+ import 'screens/login_screen.dart';
+ 
++/// reCAPTCHA v3 site key for web App Check ΓÇö set in Firebase Console ΓåÆ App Check.
++const String _webRecaptchaSiteKey = String.fromEnvironment(
++  'FIREBASE_APP_CHECK_WEB_SITE_KEY',
++  defaultValue: 'REPLACE_WITH_RECAPTCHA_V3_SITE_KEY',
++);
++
++Future<void> _activateAppCheck() async {
++  if (kIsWeb) {
++    await FirebaseAppCheck.instance.activate(
++      providerWeb: ReCaptchaV3Provider(_webRecaptchaSiteKey),
++    );
++    return;
++  }
++
++  await FirebaseAppCheck.instance.activate(
++    providerAndroid: kReleaseMode
++        ? const AndroidPlayIntegrityProvider()
++        : const AndroidDebugProvider(),
++    providerApple: kReleaseMode
++        ? const AppleAppAttestProvider()
++        : const AppleDebugProvider(),
++  );
++}
++
+ void main() async {
+   WidgetsFlutterBinding.ensureInitialized();
+-  
+-  // Initialize Firebase
+-  // Note: The DefaultFirebaseOptions are placeholders. 
+-  // Make sure to replace them with your actual Firebase config or run flutterfire configure.
++
+   await Firebase.initializeApp(
+     options: DefaultFirebaseOptions.currentPlatform,
+   );
+ 
++  try {
++    await _activateAppCheck();
++  } catch (e, st) {
++    if (kDebugMode) {
++      debugPrint('App Check activation failed (configure in Firebase Console): $e\n$st');
++    }
++  }
++
+   runApp(
+     MultiProvider(
+       providers: [
+@@ -40,44 +73,34 @@ class KNPInventoryApp extends StatelessWidget {
+           theme: AppTheme.lightTheme,
+           darkTheme: AppTheme.darkTheme,
+           themeMode: themeProvider.themeMode,
+-          home: const InitialScreen(),
++          home: const AuthGate(),
+         );
+       },
+     );
+   }
+ }
+ 
+-class InitialScreen extends StatefulWidget {
+-  const InitialScreen({super.key});
+-
+-  @override
+-  State<InitialScreen> createState() => _InitialScreenState();
+-}
+-
+-class _InitialScreenState extends State<InitialScreen> {
+-  @override
+-  void initState() {
+-    super.initState();
+-    WidgetsBinding.instance.addPostFrameCallback((_) {
+-      if (FirebaseAuth.instance.currentUser != null) {
+-        Navigator.of(context).pushReplacement(
+-          MaterialPageRoute(builder: (_) => const AuthLoadingScreen()),
+-        );
+-      } else {
+-        Navigator.of(context).pushReplacement(
+-          MaterialPageRoute(builder: (_) => const LoginScreen()),
+-        );
+-      }
+-    });
+-  }
++/// Routes by [AuthService.authStateChanges]; re-checks employee on sign-in.
++class AuthGate extends StatelessWidget {
++  const AuthGate({super.key});
+ 
+   @override
+   Widget build(BuildContext context) {
+-    return const Scaffold(
+-      body: Center(
+-        child: CircularProgressIndicator(),
+-      ),
++    final authService = AuthService();
++    return StreamBuilder<User?>(
++      stream: authService.authStateChanges,
++      builder: (context, snapshot) {
++        if (snapshot.connectionState == ConnectionState.waiting) {
++          return const Scaffold(
++            body: Center(child: CircularProgressIndicator()),
++          );
++        }
++        final user = snapshot.data;
++        if (user == null) {
++          return const LoginScreen();
++        }
++        return const AuthLoadingScreen();
++      },
+     );
+   }
+ }
+-
+diff --git a/flutter/knp_inventory_system/lib/models/category_model.dart b/flutter/knp_inventory_system/lib/models/category_model.dart
+index 58ce851..ff7baa3 100644
+--- a/flutter/knp_inventory_system/lib/models/category_model.dart
++++ b/flutter/knp_inventory_system/lib/models/category_model.dart
+@@ -34,6 +34,9 @@ class CategoryModel {
+ 
+   /// Curated set of professional Material icons for categories.
+   static const Map<String, IconData> iconMap = _iconMap;
++
++  /// Icon keys allowed by [firestore.rules].
++  static Set<String> get allowedIconKeys => _iconMap.keys.toSet();
+ }
+ 
+ const Map<String, IconData> _iconMap = {
+diff --git a/flutter/knp_inventory_system/lib/models/ingredient.dart b/flutter/knp_inventory_system/lib/models/ingredient.dart
+index 77c855a..8a54081 100644
+--- a/flutter/knp_inventory_system/lib/models/ingredient.dart
++++ b/flutter/knp_inventory_system/lib/models/ingredient.dart
+@@ -31,14 +31,18 @@ class Ingredient {
+     );
+   }
+ 
+-  Map<String, dynamic> toFirestore() {
+-    return {
+-      'name': name,
+-      'classification': classification,
++  Map<String, dynamic> toFirestore({String? updatedByUid}) {
++    final data = <String, dynamic>{
++      'name': name.trim(),
++      'classification': classification.trim(),
+       'quantityClassification': quantityClassification,
+       'quantity': quantity,
+       'lastUpdated': FieldValue.serverTimestamp(),
+     };
++    if (updatedByUid != null) {
++      data['lastUpdatedBy'] = updatedByUid;
++    }
++    return data;
+   }
+ 
+   bool get isLowStock {
+diff --git a/flutter/knp_inventory_system/lib/screens/add_modify_screen.dart b/flutter/knp_inventory_system/lib/screens/add_modify_screen.dart
+index a5dbf4f..d643d6e 100644
+--- a/flutter/knp_inventory_system/lib/screens/add_modify_screen.dart
++++ b/flutter/knp_inventory_system/lib/screens/add_modify_screen.dart
+@@ -1,8 +1,10 @@
++import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
+ import 'package:flutter/material.dart';
+ import 'package:google_fonts/google_fonts.dart';
+ import '../models/ingredient.dart';
+ import '../services/inventory_service.dart';
+ import '../models/category_model.dart';
++import '../utils/inventory_validators.dart';
+ 
+ class AddModifyScreen extends StatefulWidget {
+   const AddModifyScreen({super.key});
+@@ -19,9 +21,7 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
+   // ΓöÇΓöÇ Add-form selection state ΓöÇΓöÇ
+   String _selectedCategory = '';
+   String _selectedQtyClassification = 'number';
+-  final List<String> _qtyClassifications = [
+-    'number', 'mg', 'kg', 'liters', 'milliliters',
+-  ];
++  final List<String> _qtyClassifications = InventoryValidators.quantityUnits;
+ 
+   // ΓöÇΓöÇ Edit-mode draft maps ΓöÇΓöÇ
+   final Map<String, String> _draftCategories = {};
+@@ -120,10 +120,20 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
+         if (_pendingDeletions.contains(item.id)) continue;
+         final ctrl = _draftControllers[item.id];
+         if (ctrl == null) continue;
+-        final newQty = double.tryParse(ctrl.text);
+-        if (newQty == null) continue;
++        final newQty = InventoryValidators.parseQuantity(ctrl.text);
++        if (newQty == null) {
++          throw InventoryValidationException(
++            'Invalid quantity for "${item.name}".',
++          );
++        }
+         final newUnit = _draftUnits[item.id] ?? item.quantityClassification;
+         final newCat = _draftCategories[item.id] ?? item.classification;
++        if (InventoryValidators.validateQuantityUnit(newUnit) != null ||
++            InventoryValidators.validateClassification(newCat) != null) {
++          throw InventoryValidationException(
++            'Invalid data for "${item.name}".',
++          );
++        }
+         if (newQty == item.quantity && newUnit == item.quantityClassification && newCat == item.classification) continue;
+         await _inventoryService.updateIngredient(Ingredient(
+           id: item.id,
+@@ -138,10 +148,14 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
+           const SnackBar(content: Text('Changes saved successfully!')),
+         );
+       }
+-    } catch (e) {
++    } catch (e, st) {
++      if (kDebugMode) debugPrint('Save edits failed: $e\n$st');
+       if (mounted) {
++        final message = e is InventoryValidationException
++            ? e.message
++            : InventoryValidators.userSafeErrorMessage(e);
+         ScaffoldMessenger.of(context).showSnackBar(
+-          SnackBar(content: Text('Error saving changes: $e')),
++          SnackBar(content: Text(message)),
+         );
+       }
+     } finally {
+@@ -161,6 +175,10 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
+       try {
+         final newNameRaw = _nameController.text.trim();
+         final newNameLower = newNameRaw.toLowerCase();
++        final qty = InventoryValidators.parseQuantity(_quantityController.text);
++        if (qty == null) {
++          throw InventoryValidationException('Enter a valid quantity.');
++        }
+         final existingSnapshot = await _inventoryService.getInventoryStream().first;
+         final isDuplicate = existingSnapshot.any((item) => item.name.toLowerCase() == newNameLower);
+         if (isDuplicate) {
+@@ -179,7 +197,7 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
+           name: newNameRaw,
+           classification: _selectedCategory,
+           quantityClassification: _selectedQtyClassification,
+-          quantity: double.parse(_quantityController.text.trim()),
++          quantity: qty,
+         ));
+         if (mounted) {
+           ScaffoldMessenger.of(context).showSnackBar(
+@@ -188,10 +206,14 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
+           _nameController.clear();
+           _quantityController.clear();
+         }
+-      } catch (e) {
++      } catch (e, st) {
++        if (kDebugMode) debugPrint('Add ingredient failed: $e\n$st');
+         if (mounted) {
++          final message = e is InventoryValidationException
++              ? e.message
++              : InventoryValidators.userSafeErrorMessage(e);
+           ScaffoldMessenger.of(context).showSnackBar(
+-            SnackBar(content: Text('Error: $e')),
++            SnackBar(content: Text(message)),
+           );
+         }
+       } finally {
+@@ -298,7 +320,7 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
+                                 labelText: 'Name',
+                                 prefixIcon: Icon(Icons.label_outline),
+                               ),
+-                              validator: (v) => v!.isEmpty ? 'Required' : null,
++                              validator: InventoryValidators.validateIngredientName,
+                             ),
+                             const SizedBox(height: 14),
+                             StreamBuilder<List<CategoryModel>>(
+@@ -312,13 +334,13 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
+                                 }
+ 
+                                 return DropdownButtonFormField<String>(
+-                                  value: effectiveCategory,
++                                  initialValue: effectiveCategory,
+                                   isExpanded: true,
+                                   decoration: const InputDecoration(
+                                     labelText: 'Category',
+                                     prefixIcon: Icon(Icons.category_outlined),
+                                   ),
+-                                  validator: (v) => (v == null || v.isEmpty) ? 'Select a category' : null,
++                                  validator: InventoryValidators.validateClassification,
+                                   items: cats.map((c) => DropdownMenuItem(
+                                     value: c.name,
+                                     child: Row(children: [
+@@ -342,7 +364,7 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
+                                     prefixIcon: Icon(Icons.numbers_outlined),
+                                   ),
+                                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
+-                                  validator: (v) => v!.isEmpty ? 'Required' : null,
++                                  validator: InventoryValidators.validateQuantityString,
+                                 ),
+                               ),
+                               const SizedBox(width: 12),
+@@ -792,7 +814,7 @@ class _EditRow extends StatelessWidget {
+             color: Colors.red.shade700,
+             bg: Colors.red.withValues(alpha: 0.1),
+             onPressed: isMarkedForDelete ? null : () {
+-              double v = double.tryParse(ctrl.text) ?? 0;
++              final v = InventoryValidators.parseQuantity(ctrl.text) ?? 0;
+               if (v > 0) { ctrl.text = _fmt(v - 1); }
+             },
+           ),
+@@ -817,8 +839,11 @@ class _EditRow extends StatelessWidget {
+             color: Colors.green.shade700,
+             bg: Colors.green.withValues(alpha: 0.1),
+             onPressed: isMarkedForDelete ? null : () {
+-              double v = double.tryParse(ctrl.text) ?? 0;
+-              ctrl.text = _fmt(v + 1);
++              final v = InventoryValidators.parseQuantity(ctrl.text) ?? 0;
++              final next = v + 1;
++              if (InventoryValidators.validateQuantity(next) == null) {
++                ctrl.text = _fmt(next);
++              }
+             },
+           ),
+           const SizedBox(width: 4),
+diff --git a/flutter/knp_inventory_system/lib/screens/auth_loading_screen.dart b/flutter/knp_inventory_system/lib/screens/auth_loading_screen.dart
+index c36c6d4..56e7ff7 100644
+--- a/flutter/knp_inventory_system/lib/screens/auth_loading_screen.dart
++++ b/flutter/knp_inventory_system/lib/screens/auth_loading_screen.dart
+@@ -1,8 +1,13 @@
++import 'package:flutter/foundation.dart' show kDebugMode;
+ import 'package:flutter/material.dart';
++import 'package:flutter/services.dart';
+ import '../services/auth_service.dart';
++import '../services/employee_service.dart';
++import '../utils/admin_utils.dart';
+ import 'main_layout.dart';
+-import 'login_screen.dart';
+ 
++/// Verifies [employees] allowlist after Firebase Auth sign-in.
++/// Builds [MainLayout] when allowed; signs out and shows denial otherwise.
+ class AuthLoadingScreen extends StatefulWidget {
+   const AuthLoadingScreen({super.key});
+ 
+@@ -13,7 +18,29 @@ class AuthLoadingScreen extends StatefulWidget {
+ class _AuthLoadingScreenState extends State<AuthLoadingScreen> {
+   final AuthService _authService = AuthService();
+   String _statusMessage = 'Verifying employee eligibility...';
++  String? _uidHint;
+   bool _hasError = false;
++  bool? _isEmployee;
++
++  static String _messageForStatus(EmployeeCheckStatus status) {
++    switch (status) {
++      case EmployeeCheckStatus.active:
++        return '';
++      case EmployeeCheckStatus.notOnAllowlist:
++        return 'Access Denied\n\n'
++            'Your account could not be registered. '
++            'Sign in with an email address, or contact your administrator.';
++      case EmployeeCheckStatus.inactive:
++        return 'Access Denied\n\n'
++            'Your account is pending approval. '
++            'An administrator must activate your access before you can use the app.';
++      case EmployeeCheckStatus.verificationFailed:
++        return 'Access Denied\n\n'
++            'Could not verify employee access (Firestore or App Check). '
++            'If you are an administrator, ensure security rules are deployed '
++            'and App Check debug tokens are registered for development.';
++    }
++  }
+ 
+   @override
+   void initState() {
+@@ -24,49 +51,54 @@ class _AuthLoadingScreenState extends State<AuthLoadingScreen> {
+   Future<void> _checkEligibility() async {
+     final user = _authService.currentUser;
+     if (user == null) {
+-      _goToLogin();
+       return;
+     }
+ 
+     try {
+-      // Force refresh profile data from Firebase to ensure display name/photo are loaded
+       await user.reload();
+     } catch (_) {
+-      // Ignore if offline
++      // Offline or transient ΓÇö continue with cached user for employee check
+     }
+-    
+-    // Briefly show the loading screen for UX
+-    await Future.delayed(const Duration(seconds: 1));
+-
+-    final isEmployee = await _authService.checkIsEmployee(user);
+-    if (isEmployee) {
+-      if (mounted) {
+-        Navigator.of(context).pushReplacement(
+-          MaterialPageRoute(builder: (_) => const MainLayout()),
+-        );
+-      }
+-    } else {
+-      if (mounted) {
+-        setState(() {
+-          _statusMessage =
+-              'Access Denied\n\nThis account is not registered as a KNP employee. Please contact your administrator.';
+-          _hasError = true;
+-        });
+-        await _authService.signOut();
+-        await Future.delayed(const Duration(seconds: 3));
+-        if (mounted) _goToLogin();
++
++    final reloadedUser = _authService.currentUser ?? user;
++
++    if (AdminUtils.isAdmin(reloadedUser)) {
++      try {
++        await _authService.prepareEmployeeGate(reloadedUser);
++      } catch (_) {
++        // Admin bypass still allows access if ensure fails
+       }
++      if (!mounted) return;
++      setState(() => _isEmployee = true);
++      return;
+     }
+-  }
+ 
+-  void _goToLogin() {
+-    Navigator.of(context).pushReplacement(
+-      MaterialPageRoute(builder: (_) => const LoginScreen()),
+-    );
++    final status = await _authService.prepareEmployeeGate(reloadedUser);
++
++    if (!mounted) return;
++
++    if (status == EmployeeCheckStatus.active) {
++      setState(() => _isEmployee = true);
++      return;
++    }
++
++    setState(() {
++      _isEmployee = false;
++      _statusMessage = _messageForStatus(status);
++      _uidHint = status == EmployeeCheckStatus.notOnAllowlist
++          ? reloadedUser.uid
++          : null;
++      _hasError = true;
++    });
++    await _authService.signOut();
+   }
+ 
+   @override
+   Widget build(BuildContext context) {
++    if (_isEmployee == true) {
++      return const MainLayout();
++    }
++
+     final isDark = Theme.of(context).brightness == Brightness.dark;
+ 
+     return Scaffold(
+@@ -76,7 +108,6 @@ class _AuthLoadingScreenState extends State<AuthLoadingScreen> {
+           child: Column(
+             mainAxisAlignment: MainAxisAlignment.center,
+             children: [
+-              // Show the KNP logo while loading
+               Container(
+                 padding: const EdgeInsets.all(16),
+                 decoration: BoxDecoration(
+@@ -107,11 +138,37 @@ class _AuthLoadingScreenState extends State<AuthLoadingScreen> {
+                 _statusMessage,
+                 textAlign: TextAlign.center,
+                 style: TextStyle(
+-                  fontSize: _hasError ? 16 : 15,
++                  fontSize: 15,
+                   fontWeight: _hasError ? FontWeight.w600 : FontWeight.w400,
+                   color: _hasError ? Colors.redAccent : null,
++                  height: 1.35,
+                 ),
+               ),
++              if (_uidHint != null) ...[
++                const SizedBox(height: 16),
++                SelectableText(
++                  'UID: $_uidHint',
++                  textAlign: TextAlign.center,
++                  style: TextStyle(
++                    fontSize: 12,
++                    fontFamily: 'monospace',
++                    color: Colors.grey.shade600,
++                  ),
++                ),
++                if (kDebugMode) ...[
++                  const SizedBox(height: 8),
++                  TextButton.icon(
++                    onPressed: () {
++                      Clipboard.setData(ClipboardData(text: _uidHint!));
++                      ScaffoldMessenger.of(context).showSnackBar(
++                        const SnackBar(content: Text('UID copied')),
++                      );
++                    },
++                    icon: const Icon(Icons.copy, size: 16),
++                    label: const Text('Copy UID for admin'),
++                  ),
++                ],
++              ],
+             ],
+           ),
+         ),
+diff --git a/flutter/knp_inventory_system/lib/screens/home_screen.dart b/flutter/knp_inventory_system/lib/screens/home_screen.dart
+index 4cdcfb2..4e99846 100644
+--- a/flutter/knp_inventory_system/lib/screens/home_screen.dart
++++ b/flutter/knp_inventory_system/lib/screens/home_screen.dart
+@@ -1,8 +1,10 @@
++import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
+ import 'package:flutter/material.dart';
+ import 'package:google_fonts/google_fonts.dart';
+ import '../services/inventory_service.dart';
+ import '../models/ingredient.dart';
+ import '../models/category_model.dart';
++import '../utils/inventory_validators.dart';
+ 
+ class HomeScreen extends StatefulWidget {
+   const HomeScreen({super.key});
+@@ -161,10 +163,20 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
+         if (_pendingDeletions.contains(item.id)) continue;
+         final ctrl = _draftControllers[item.id];
+         if (ctrl == null) continue;
+-        final newQty = double.tryParse(ctrl.text);
+-        if (newQty == null) continue;
++        final newQty = InventoryValidators.parseQuantity(ctrl.text);
++        if (newQty == null) {
++          throw InventoryValidationException(
++            'Invalid quantity for "${item.name}".',
++          );
++        }
+         final newUnit = _draftUnits[item.id] ?? item.quantityClassification;
+         final newCat = _draftCategories[item.id] ?? item.classification;
++        if (InventoryValidators.validateQuantityUnit(newUnit) != null ||
++            InventoryValidators.validateClassification(newCat) != null) {
++          throw InventoryValidationException(
++            'Invalid data for "${item.name}".',
++          );
++        }
+         if (newQty == item.quantity && newUnit == item.quantityClassification && newCat == item.classification) continue;
+         await _inventoryService.updateIngredient(Ingredient(
+           id: item.id, name: item.name,
+@@ -178,10 +190,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
+           const SnackBar(content: Text('Changes saved!')),
+         );
+       }
+-    } catch (e) {
++    } catch (e, st) {
++      if (kDebugMode) debugPrint('Save edits failed: $e\n$st');
+       if (mounted) {
++        final message = e is InventoryValidationException
++            ? e.message
++            : InventoryValidators.userSafeErrorMessage(e);
+         ScaffoldMessenger.of(context).showSnackBar(
+-          SnackBar(content: Text('Error: $e')),
++          SnackBar(content: Text(message)),
+         );
+       }
+     } finally {
+@@ -770,7 +786,7 @@ class _HomeEditRow extends StatelessWidget {
+             icon: Icons.remove, color: Colors.red.shade700,
+             bg: Colors.red.withValues(alpha: 0.1),
+             onPressed: isMarked ? null : () {
+-              double v = double.tryParse(ctrl.text) ?? 0;
++              final v = InventoryValidators.parseQuantity(ctrl.text) ?? 0;
+               if (v > 0) { ctrl.text = fmt(v - 1); }
+             },
+           ),
+@@ -794,8 +810,11 @@ class _HomeEditRow extends StatelessWidget {
+             icon: Icons.add, color: Colors.green.shade700,
+             bg: Colors.green.withValues(alpha: 0.1),
+             onPressed: isMarked ? null : () {
+-              double v = double.tryParse(ctrl.text) ?? 0;
+-              ctrl.text = fmt(v + 1);
++              final v = InventoryValidators.parseQuantity(ctrl.text) ?? 0;
++              final next = v + 1;
++              if (InventoryValidators.validateQuantity(next) == null) {
++                ctrl.text = fmt(next);
++              }
+             },
+           ),
+           // Delete toggle
+diff --git a/flutter/knp_inventory_system/lib/screens/login_screen.dart b/flutter/knp_inventory_system/lib/screens/login_screen.dart
+index 40e1f3d..8ec2f2c 100644
+--- a/flutter/knp_inventory_system/lib/screens/login_screen.dart
++++ b/flutter/knp_inventory_system/lib/screens/login_screen.dart
+@@ -1,7 +1,6 @@
+ import 'package:flutter/material.dart';
+ import 'package:google_fonts/google_fonts.dart';
+ import '../services/auth_service.dart';
+-import 'auth_loading_screen.dart';
+ 
+ class LoginScreen extends StatefulWidget {
+   const LoginScreen({super.key});
+@@ -42,6 +41,35 @@ class _LoginScreenState extends State<LoginScreen>
+     super.dispose();
+   }
+ 
++  void _showAuthError(Object error) {
++    final message = AuthService.authErrorMessage(error);
++    if (AuthService.isNotRegisteredError(error)) {
++      _showNotRegisteredDialog(message);
++      return;
++    }
++    ScaffoldMessenger.of(context).showSnackBar(
++      SnackBar(content: Text(message)),
++    );
++  }
++
++  Future<void> _showNotRegisteredDialog(String message) async {
++    await showDialog<void>(
++      context: context,
++      builder: (context) => AlertDialog(
++        title: const Text('Account not registered'),
++        content: Text(
++          '$message\n\nOnly administrators can add new accounts.',
++        ),
++        actions: [
++          TextButton(
++            onPressed: () => Navigator.of(context).pop(),
++            child: const Text('OK'),
++          ),
++        ],
++      ),
++    );
++  }
++
+   void _handleLogin() async {
+     if (_emailController.text.trim().isEmpty ||
+         _passwordController.text.trim().isEmpty) {
+@@ -56,17 +84,9 @@ class _LoginScreenState extends State<LoginScreen>
+         _emailController.text.trim(),
+         _passwordController.text.trim(),
+       );
+-      if (mounted) {
+-        Navigator.of(context).pushReplacement(
+-          MaterialPageRoute(builder: (_) => const AuthLoadingScreen()),
+-        );
+-      }
++      // AuthGate listens to authStateChanges and shows AuthLoadingScreen.
+     } catch (e) {
+-      if (mounted) {
+-        ScaffoldMessenger.of(context).showSnackBar(
+-          SnackBar(content: Text('Login failed: ${e.toString()}')),
+-        );
+-      }
++      if (mounted) _showAuthError(e);
+     } finally {
+       if (mounted) setState(() => _isLoading = false);
+     }
+@@ -75,18 +95,10 @@ class _LoginScreenState extends State<LoginScreen>
+   void _handleGoogleLogin() async {
+     setState(() => _isLoading = true);
+     try {
+-      final user = await _authService.signInWithGoogle();
+-      if (user != null && mounted) {
+-        Navigator.of(context).pushReplacement(
+-          MaterialPageRoute(builder: (_) => const AuthLoadingScreen()),
+-        );
+-      }
++      await _authService.signInWithGoogle();
++      // AuthGate listens to authStateChanges and shows AuthLoadingScreen.
+     } catch (e) {
+-      if (mounted) {
+-        ScaffoldMessenger.of(context).showSnackBar(
+-          SnackBar(content: Text('Google Login failed: ${e.toString()}')),
+-        );
+-      }
++      if (mounted) _showAuthError(e);
+     } finally {
+       if (mounted) setState(() => _isLoading = false);
+     }
+@@ -218,6 +230,16 @@ class _LoginScreenState extends State<LoginScreen>
+                       ),
+                     ),
+                   ),
++                  const SizedBox(height: 16),
++                  Text(
++                    "Don't have an account? Contact your administrator to be added, then sign in here.",
++                    textAlign: TextAlign.center,
++                    style: GoogleFonts.inter(
++                      fontSize: 13,
++                      color: Colors.grey,
++                      height: 1.4,
++                    ),
++                  ),
+                   const SizedBox(height: 32),
+                 ],
+               ),
+diff --git a/flutter/knp_inventory_system/lib/screens/user_profile_screen.dart b/flutter/knp_inventory_system/lib/screens/user_profile_screen.dart
+index dbc17fe..3e5be5c 100644
+--- a/flutter/knp_inventory_system/lib/screens/user_profile_screen.dart
++++ b/flutter/knp_inventory_system/lib/screens/user_profile_screen.dart
+@@ -3,7 +3,8 @@ import 'package:google_fonts/google_fonts.dart';
+ import 'package:provider/provider.dart';
+ import '../theme/app_theme.dart';
+ import '../services/auth_service.dart';
+-import 'login_screen.dart';
++import '../utils/admin_utils.dart';
++import 'manage_employees_screen.dart';
+ 
+ class UserProfileScreen extends StatelessWidget {
+   const UserProfileScreen({super.key});
+@@ -173,6 +174,54 @@ class UserProfileScreen extends StatelessWidget {
+                 ),
+               ),
+               const SizedBox(height: 10),
++              if (AdminUtils.isAdmin(user)) ...[
++                Card(
++                  child: InkWell(
++                    onTap: () {
++                      Navigator.of(context).push(
++                        MaterialPageRoute(
++                          builder: (_) => const ManageEmployeesScreen(),
++                        ),
++                      );
++                    },
++                    borderRadius: BorderRadius.circular(20),
++                    child: Padding(
++                      padding: const EdgeInsets.symmetric(
++                          horizontal: 16, vertical: 16),
++                      child: Row(
++                        children: [
++                          Container(
++                            padding: const EdgeInsets.all(8),
++                            decoration: BoxDecoration(
++                              color: Theme.of(context)
++                                  .primaryColor
++                                  .withAlpha(25),
++                              borderRadius: BorderRadius.circular(10),
++                            ),
++                            child: Icon(
++                              Icons.manage_accounts_outlined,
++                              color: Theme.of(context).primaryColor,
++                              size: 20,
++                            ),
++                          ),
++                          const SizedBox(width: 14),
++                          Text(
++                            'Manage Employees',
++                            style: GoogleFonts.inter(
++                              fontSize: 15,
++                              fontWeight: FontWeight.w600,
++                            ),
++                          ),
++                          const Spacer(),
++                          Icon(Icons.chevron_right,
++                              color: Colors.grey.shade400),
++                        ],
++                      ),
++                    ),
++                  ),
++                ),
++                const SizedBox(height: 10),
++              ],
+               Card(
+                 child: InkWell(
+                   onTap: () async {
+@@ -213,12 +262,7 @@ class UserProfileScreen extends StatelessWidget {
+ 
+                     if (confirmed == true) {
+                       await authService.signOut();
+-                      if (context.mounted) {
+-                        Navigator.of(context).pushReplacement(
+-                          MaterialPageRoute(
+-                              builder: (_) => const LoginScreen()),
+-                        );
+-                      }
++                      // AuthGate in main.dart routes to LoginScreen.
+                     }
+                   },
+                   borderRadius: BorderRadius.circular(20),
+diff --git a/flutter/knp_inventory_system/lib/services/auth_service.dart b/flutter/knp_inventory_system/lib/services/auth_service.dart
+index 06fcbd2..75c1665 100644
+--- a/flutter/knp_inventory_system/lib/services/auth_service.dart
++++ b/flutter/knp_inventory_system/lib/services/auth_service.dart
+@@ -1,93 +1,161 @@
+ import 'package:firebase_auth/firebase_auth.dart';
+ import 'package:flutter/foundation.dart' show kIsWeb;
+ import 'package:google_sign_in/google_sign_in.dart';
++import 'employee_service.dart';
++
++class AuthException implements Exception {
++  AuthException(this.message, {required this.notRegistered});
++
++  final String message;
++  final bool notRegistered;
++
++  @override
++  String toString() => message;
++}
+ 
+ class AuthService {
+-  final FirebaseAuth _auth = FirebaseAuth.instance;
++  AuthService({
++    FirebaseAuth? auth,
++    EmployeeService? employeeService,
++  })  : _auth = auth ?? FirebaseAuth.instance,
++        _employeeService = employeeService ?? EmployeeService();
++
++  final FirebaseAuth _auth;
++  final EmployeeService _employeeService;
++
++  static const String notRegisteredMessage =
++      'This account is not registered. Ask your administrator to create your account, then sign in again.';
+ 
+   User? get currentUser => _auth.currentUser;
+ 
+   Stream<User?> get authStateChanges => _auth.authStateChanges();
+ 
+-  // Mock employee check since we don't have a real KNP employee database
++  static String authErrorMessage(Object error) {
++    if (error is FirebaseAuthException) {
++      switch (error.code) {
++        case 'user-not-found':
++        case 'admin-restricted-operation':
++          return notRegisteredMessage;
++        case 'wrong-password':
++        case 'invalid-credential':
++          return 'Incorrect email or password.';
++        case 'user-disabled':
++          return 'This account has been disabled. Contact your administrator.';
++        case 'too-many-requests':
++          return 'Too many attempts. Try again later.';
++        default:
++          return 'Sign-in failed. Please try again or contact your administrator.';
++      }
++    }
++    if (error is AuthException) {
++      return error.message;
++    }
++    if (error is Exception) {
++      return error.toString().replaceFirst('Exception: ', '');
++    }
++    return 'Sign-in failed. Please try again or contact your administrator.';
++  }
++
++  static bool isNotRegisteredError(Object error) {
++    if (error is AuthException) {
++      return error.notRegistered;
++    }
++    if (error is FirebaseAuthException) {
++      return error.code == 'user-not-found' ||
++          error.code == 'admin-restricted-operation';
++    }
++    return false;
++  }
++
++  /// Verifies the user exists in `employees/{uid}` with `active: true`.
+   Future<bool> checkIsEmployee(User user) async {
+-    // Firebase Auth handles the actual validation of whether the user exists.
+-    // If they successfully logged in, we assume they are eligible.
+-    return true;
++    return _employeeService.isActiveEmployee(user);
++  }
++
++  Future<EmployeeCheckStatus> checkEmployeeStatus(User user) async {
++    return _employeeService.checkStatus(user);
++  }
++
++  /// Ensures a pending Firestore record exists, then returns eligibility status.
++  Future<EmployeeCheckStatus> prepareEmployeeGate(User user) async {
++    await _employeeService.ensurePendingRecord(user);
++    return _employeeService.checkStatus(user);
++  }
++
++  Future<void> _clearGoogleSession() async {
++    await _auth.signOut();
++    if (!kIsWeb) {
++      await GoogleSignIn().signOut();
++    }
++  }
++
++  Never _throwAuthError(Object error) {
++    final notRegistered = error is FirebaseAuthException &&
++        (error.code == 'user-not-found' ||
++            error.code == 'admin-restricted-operation');
++    throw AuthException(
++      authErrorMessage(error),
++      notRegistered: notRegistered,
++    );
+   }
+ 
+   Future<UserCredential?> signInWithEmail(String email, String password) async {
+     try {
+-      return await _auth.signInWithEmailAndPassword(email: email, password: password);
++      return await _auth.signInWithEmailAndPassword(
++        email: email,
++        password: password,
++      );
++    } on FirebaseAuthException catch (e) {
++      _throwAuthError(e);
+     } catch (e) {
+-      rethrow;
++      _throwAuthError(e);
+     }
+   }
+ 
+   Future<UserCredential?> signInWithGoogle() async {
+     try {
++      UserCredential userCredential;
+       if (kIsWeb) {
+-        // ΓöÇΓöÇΓöÇ Web: Use Firebase Auth popup flow directly ΓöÇΓöÇΓöÇ
+-        // This is the most reliable approach for web.
+         final GoogleAuthProvider googleProvider = GoogleAuthProvider();
+         googleProvider.addScope('email');
+         googleProvider.addScope('profile');
+ 
+-        final userCredential = await _auth.signInWithPopup(googleProvider);
++        userCredential = await _auth.signInWithPopup(googleProvider);
++      } else {
++        final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
+ 
+-        // Check if Firebase just created this account
+-        if (userCredential.additionalUserInfo?.isNewUser ?? false) {
+-          await userCredential.user?.delete();
+-          await _auth.signOut();
+-          throw Exception('Access Denied: Your email is not registered. Please contact the administrator.');
++        if (googleUser == null) {
++          return null;
+         }
+ 
+-        return userCredential;
+-      }
++        final GoogleSignInAuthentication googleAuth =
++            await googleUser.authentication;
+ 
+-      // ΓöÇΓöÇΓöÇ Mobile (Android/iOS): Native Google Sign-In flow ΓöÇΓöÇΓöÇ
+-      final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
++        final AuthCredential credential = GoogleAuthProvider.credential(
++          accessToken: googleAuth.accessToken,
++          idToken: googleAuth.idToken,
++        );
+ 
+-      if (googleUser == null) {
+-        // The user canceled the sign-in
+-        return null;
+-      }
+-
+-      // Obtain the auth details
+-      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+-
+-      // Create a new credential
+-      final AuthCredential credential = GoogleAuthProvider.credential(
+-        accessToken: googleAuth.accessToken,
+-        idToken: googleAuth.idToken,
+-      );
+-
+-      // Once signed in, return the UserCredential
+-      final userCredential = await _auth.signInWithCredential(credential);
+-
+-      // Check if Firebase just created this account
+-      if (userCredential.additionalUserInfo?.isNewUser ?? false) {
+-        // The user is not on your pre-approved list.
+-        // 1. Delete the unwanted account from Firebase
+-        await userCredential.user?.delete();
+-        // 2. Sign them out of Firebase
+-        await _auth.signOut();
+-        // 3. Clear the Google Sign-In cache so the account chooser appears next time
+-        await GoogleSignIn().signOut();
+-        // 4. Throw an error to show on the Login Screen
+-        throw Exception('Access Denied: Your email is not registered. Please contact the administrator.');
++        userCredential = await _auth.signInWithCredential(credential);
+       }
+ 
+       return userCredential;
+-    } catch (e) {
++    } on FirebaseAuthException catch (e) {
++      if (e.code == 'admin-restricted-operation' ||
++          e.code == 'user-not-found') {
++        await _clearGoogleSession();
++      }
++      _throwAuthError(e);
++    } on AuthException {
+       rethrow;
++    } catch (e) {
++      _throwAuthError(e);
+     }
+   }
+ 
+   Future<void> signOut() async {
+     await _auth.signOut();
+     if (!kIsWeb) {
+-      // Only call GoogleSignIn().signOut() on mobile platforms
+       await GoogleSignIn().signOut();
+     }
+   }
+diff --git a/flutter/knp_inventory_system/lib/services/inventory_service.dart b/flutter/knp_inventory_system/lib/services/inventory_service.dart
+index 2e14dc1..bdcddca 100644
+--- a/flutter/knp_inventory_system/lib/services/inventory_service.dart
++++ b/flutter/knp_inventory_system/lib/services/inventory_service.dart
+@@ -1,12 +1,55 @@
+ import 'package:cloud_firestore/cloud_firestore.dart';
++import 'package:firebase_auth/firebase_auth.dart';
+ import '../models/ingredient.dart';
+ import '../models/category_model.dart';
++import '../utils/inventory_validators.dart';
++
++class InventoryValidationException implements Exception {
++  InventoryValidationException(this.message);
++  final String message;
++  @override
++  String toString() => message;
++}
+ 
+ class InventoryService {
+-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
++  InventoryService({FirebaseFirestore? firestore, FirebaseAuth? auth})
++      : _firestore = firestore ?? FirebaseFirestore.instance,
++        _auth = auth ?? FirebaseAuth.instance;
++
++  final FirebaseFirestore _firestore;
++  final FirebaseAuth _auth;
+   final String collectionPath = 'inventory';
+   final String categoriesPath = 'categories';
+ 
++  String? get _updatedByUid => _auth.currentUser?.uid;
++
++  void _validateIngredient(Ingredient ingredient) {
++    if (InventoryValidators.validateIngredientName(ingredient.name) != null) {
++      throw InventoryValidationException('Invalid ingredient name.');
++    }
++    if (InventoryValidators.validateClassification(ingredient.classification) !=
++        null) {
++      throw InventoryValidationException('Invalid category.');
++    }
++    if (InventoryValidators.validateQuantityUnit(
++            ingredient.quantityClassification) !=
++        null) {
++      throw InventoryValidationException('Invalid quantity unit.');
++    }
++    if (InventoryValidators.validateQuantity(ingredient.quantity) != null) {
++      throw InventoryValidationException('Invalid quantity.');
++    }
++  }
++
++  void _validateCategory(CategoryModel category) {
++    if (InventoryValidators.validateCategoryName(category.name) != null) {
++      throw InventoryValidationException('Invalid category name.');
++    }
++    if (!CategoryModel.allowedIconKeys.contains(category.iconString)) {
++      throw InventoryValidationException('Invalid category icon.');
++    }
++  }
++
+   // ΓöÇΓöÇ Inventory ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+ 
+   Stream<List<Ingredient>> getInventoryStream() {
+@@ -16,14 +59,17 @@ class InventoryService {
+   }
+ 
+   Future<void> addIngredient(Ingredient ingredient) async {
+-    await _firestore.collection(collectionPath).add(ingredient.toFirestore());
++    _validateIngredient(ingredient);
++    await _firestore
++        .collection(collectionPath)
++        .add(ingredient.toFirestore(updatedByUid: _updatedByUid));
+   }
+ 
+   Future<void> updateIngredient(Ingredient ingredient) async {
+-    await _firestore
+-        .collection(collectionPath)
+-        .doc(ingredient.id)
+-        .update(ingredient.toFirestore());
++    _validateIngredient(ingredient);
++    await _firestore.collection(collectionPath).doc(ingredient.id).update(
++          ingredient.toFirestore(updatedByUid: _updatedByUid),
++        );
+   }
+ 
+   Future<void> deleteIngredient(String id) async {
+@@ -42,10 +88,12 @@ class InventoryService {
+   }
+ 
+   Future<void> addCategory(CategoryModel category) async {
++    _validateCategory(category);
+     await _firestore.collection(categoriesPath).add(category.toFirestore());
+   }
+ 
+   Future<void> updateCategory(CategoryModel category) async {
++    _validateCategory(category);
+     await _firestore
+         .collection(categoriesPath)
+         .doc(category.id)
+@@ -55,31 +103,46 @@ class InventoryService {
+   /// Deletes a category and moves all ingredients that belonged to it
+   /// to the "Uncategorized" bucket.
+   Future<void> deleteCategory(String categoryId, String categoryName) async {
+-    await _firestore
+-        .collection(categoriesPath)
+-        .doc(categoryId)
+-        .delete();
++    await _firestore.collection(categoriesPath).doc(categoryId).delete();
+ 
+-    // Move orphaned ingredients to "Uncategorized"
+     final affected = await _firestore
+         .collection(collectionPath)
+         .where('classification', isEqualTo: categoryName)
+         .get();
+ 
+     final batch = _firestore.batch();
++    final uid = _updatedByUid;
+     for (final doc in affected.docs) {
+-      batch.update(doc.reference, {'classification': 'Uncategorized'});
++      final data = Map<String, dynamic>.from(doc.data());
++      data['classification'] = 'Uncategorized';
++      data['lastUpdated'] = FieldValue.serverTimestamp();
++      if (uid != null) {
++        data['lastUpdatedBy'] = uid;
++      }
++      batch.update(doc.reference, data);
+     }
+     await batch.commit();
+   }
+ 
+   /// Renames a category and batch-updates all ingredients using the old name.
+   Future<void> renameCategory(
+-      String categoryId, String oldName, String newName, String iconString) async {
+-    await _firestore
+-        .collection(categoriesPath)
+-        .doc(categoryId)
+-        .update({'name': newName, 'iconString': iconString});
++    String categoryId,
++    String oldName,
++    String newName,
++    String iconString,
++  ) async {
++    final trimmedName = newName.trim();
++    if (InventoryValidators.validateCategoryName(trimmedName) != null) {
++      throw InventoryValidationException('Invalid category name.');
++    }
++    if (!CategoryModel.allowedIconKeys.contains(iconString)) {
++      throw InventoryValidationException('Invalid category icon.');
++    }
++
++    await _firestore.collection(categoriesPath).doc(categoryId).update({
++      'name': trimmedName,
++      'iconString': iconString,
++    });
+ 
+     final affected = await _firestore
+         .collection(collectionPath)
+@@ -87,8 +150,15 @@ class InventoryService {
+         .get();
+ 
+     final batch = _firestore.batch();
++    final uid = _updatedByUid;
+     for (final doc in affected.docs) {
+-      batch.update(doc.reference, {'classification': newName});
++      final data = Map<String, dynamic>.from(doc.data());
++      data['classification'] = trimmedName;
++      data['lastUpdated'] = FieldValue.serverTimestamp();
++      if (uid != null) {
++        data['lastUpdatedBy'] = uid;
++      }
++      batch.update(doc.reference, data);
+     }
+     await batch.commit();
+   }
+diff --git a/flutter/knp_inventory_system/macos/Flutter/GeneratedPluginRegistrant.swift b/flutter/knp_inventory_system/macos/Flutter/GeneratedPluginRegistrant.swift
+index ee4892f..7a8c0c9 100644
+--- a/flutter/knp_inventory_system/macos/Flutter/GeneratedPluginRegistrant.swift
++++ b/flutter/knp_inventory_system/macos/Flutter/GeneratedPluginRegistrant.swift
+@@ -6,6 +6,7 @@ import FlutterMacOS
+ import Foundation
+ 
+ import cloud_firestore
++import firebase_app_check
+ import firebase_auth
+ import firebase_core
+ import google_sign_in_ios
+@@ -13,6 +14,7 @@ import shared_preferences_foundation
+ 
+ func RegisterGeneratedPlugins(registry: FlutterPluginRegistry) {
+   FLTFirebaseFirestorePlugin.register(with: registry.registrar(forPlugin: "FLTFirebaseFirestorePlugin"))
++  FirebaseAppCheckPlugin.register(with: registry.registrar(forPlugin: "FirebaseAppCheckPlugin"))
+   FLTFirebaseAuthPlugin.register(with: registry.registrar(forPlugin: "FLTFirebaseAuthPlugin"))
+   FLTFirebaseCorePlugin.register(with: registry.registrar(forPlugin: "FLTFirebaseCorePlugin"))
+   FLTGoogleSignInPlugin.register(with: registry.registrar(forPlugin: "FLTGoogleSignInPlugin"))
+diff --git a/flutter/knp_inventory_system/pubspec.lock b/flutter/knp_inventory_system/pubspec.lock
+index d8edad8..3fc5ba9 100644
+--- a/flutter/knp_inventory_system/pubspec.lock
++++ b/flutter/knp_inventory_system/pubspec.lock
+@@ -153,6 +153,30 @@ packages:
+       url: "https://pub.dev"
+     source: hosted
+     version: "7.0.1"
++  firebase_app_check:
++    dependency: "direct main"
++    description:
++      name: firebase_app_check
++      sha256: "893cf0f921f76a3eeb288a6fb4ba821d1fdb08f8967d71a429648aea0c172570"
++      url: "https://pub.dev"
++    source: hosted
++    version: "0.4.3"
++  firebase_app_check_platform_interface:
++    dependency: transitive
++    description:
++      name: firebase_app_check_platform_interface
++      sha256: d46dc041aca21e7659e928a03900e0e60f168349523a00d9773618a27d562bc4
++      url: "https://pub.dev"
++    source: hosted
++    version: "0.3.0"
++  firebase_app_check_web:
++    dependency: transitive
++    description:
++      name: firebase_app_check_web
++      sha256: "2b5904c7dc72366306f69c0b31a7ebed4eb56b7c7170220cd18ba06628abad39"
++      url: "https://pub.dev"
++    source: hosted
++    version: "0.2.4"
+   firebase_auth:
+     dependency: "direct main"
+     description:
+diff --git a/flutter/knp_inventory_system/pubspec.yaml b/flutter/knp_inventory_system/pubspec.yaml
+index 67a1661..8ea46a3 100644
+--- a/flutter/knp_inventory_system/pubspec.yaml
++++ b/flutter/knp_inventory_system/pubspec.yaml
+@@ -36,6 +36,7 @@ dependencies:
+   cupertino_icons: ^1.0.8
+   firebase_core: ^4.7.0
+   firebase_auth: ^6.4.0
++  firebase_app_check: ^0.4.1+2
+   cloud_firestore: ^6.3.0
+   provider: ^6.1.5+1
+   shared_preferences: ^2.5.5
