@@ -31,14 +31,18 @@ class Ingredient {
     );
   }
 
-  Map<String, dynamic> toFirestore() {
-    return {
-      'name': name,
-      'classification': classification,
+  Map<String, dynamic> toFirestore({String? updatedByUid}) {
+    final data = <String, dynamic>{
+      'name': name.trim(),
+      'classification': classification.trim(),
       'quantityClassification': quantityClassification,
       'quantity': quantity,
       'lastUpdated': FieldValue.serverTimestamp(),
     };
+    if (updatedByUid != null) {
+      data['lastUpdatedBy'] = updatedByUid;
+    }
+    return data;
   }
 
   bool get isLowStock {

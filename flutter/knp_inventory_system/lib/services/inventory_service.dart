@@ -1,11 +1,54 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../models/ingredient.dart';
 import '../models/category_model.dart';
+import '../utils/inventory_validators.dart';
+
+class InventoryValidationException implements Exception {
+  InventoryValidationException(this.message);
+  final String message;
+  @override
+  String toString() => message;
+}
 
 class InventoryService {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  InventoryService({FirebaseFirestore? firestore, FirebaseAuth? auth})
+      : _firestore = firestore ?? FirebaseFirestore.instance,
+        _auth = auth ?? FirebaseAuth.instance;
+
+  final FirebaseFirestore _firestore;
+  final FirebaseAuth _auth;
   final String collectionPath = 'inventory';
   final String categoriesPath = 'categories';
+
+  String? get _updatedByUid => _auth.currentUser?.uid;
+
+  void _validateIngredient(Ingredient ingredient) {
+    if (InventoryValidators.validateIngredientName(ingredient.name) != null) {
+      throw InventoryValidationException('Invalid ingredient name.');
+    }
+    if (InventoryValidators.validateClassification(ingredient.classification) !=
+        null) {
+      throw InventoryValidationException('Invalid category.');
+    }
+    if (InventoryValidators.validateQuantityUnit(
+            ingredient.quantityClassification) !=
+        null) {
+      throw InventoryValidationException('Invalid quantity unit.');
+    }
+    if (InventoryValidators.validateQuantity(ingredient.quantity) != null) {
+      throw InventoryValidationException('Invalid quantity.');
+    }
+  }
+
+  void _validateCategory(CategoryModel category) {
+    if (InventoryValidators.validateCategoryName(category.name) != null) {
+      throw InventoryValidationException('Invalid category name.');
+    }
+    if (!CategoryModel.allowedIconKeys.contains(category.iconString)) {
+      throw InventoryValidationException('Invalid category icon.');
+    }
+  }
 
   // ── Inventory ──────────────────────────────────────────────────────────────
 
@@ -16,14 +59,17 @@ class InventoryService {
   }
 
   Future<void> addIngredient(Ingredient ingredient) async {
-    await _firestore.collection(collectionPath).add(ingredient.toFirestore());
+    _validateIngredient(ingredient);
+    await _firestore
+        .collection(collectionPath)
+        .add(ingredient.toFirestore(updatedByUid: _updatedByUid));
   }
 
   Future<void> updateIngredient(Ingredient ingredient) async {
-    await _firestore
-        .collection(collectionPath)
-        .doc(ingredient.id)
-        .update(ingredient.toFirestore());
+    _validateIngredient(ingredient);
+    await _firestore.collection(collectionPath).doc(ingredient.id).update(
+          ingredient.toFirestore(updatedByUid: _updatedByUid),
+        );
   }
 
   Future<void> deleteIngredient(String id) async {
@@ -42,10 +88,12 @@ class InventoryService {
   }
 
   Future<void> addCategory(CategoryModel category) async {
+    _validateCategory(category);
     await _firestore.collection(categoriesPath).add(category.toFirestore());
   }
 
   Future<void> updateCategory(CategoryModel category) async {
+    _validateCategory(category);
     await _firestore
         .collection(categoriesPath)
         .doc(category.id)
@@ -55,31 +103,46 @@ class InventoryService {
   /// Deletes a category and moves all ingredients that belonged to it
   /// to the "Uncategorized" bucket.
   Future<void> deleteCategory(String categoryId, String categoryName) async {
-    await _firestore
-        .collection(categoriesPath)
-        .doc(categoryId)
-        .delete();
+    await _firestore.collection(categoriesPath).doc(categoryId).delete();
 
-    // Move orphaned ingredients to "Uncategorized"
     final affected = await _firestore
         .collection(collectionPath)
         .where('classification', isEqualTo: categoryName)
         .get();
 
     final batch = _firestore.batch();
+    final uid = _updatedByUid;
     for (final doc in affected.docs) {
-      batch.update(doc.reference, {'classification': 'Uncategorized'});
+      final data = Map<String, dynamic>.from(doc.data());
+      data['classification'] = 'Uncategorized';
+      data['lastUpdated'] = FieldValue.serverTimestamp();
+      if (uid != null) {
+        data['lastUpdatedBy'] = uid;
+      }
+      batch.update(doc.reference, data);
     }
     await batch.commit();
   }
 
   /// Renames a category and batch-updates all ingredients using the old name.
   Future<void> renameCategory(
-      String categoryId, String oldName, String newName, String iconString) async {
-    await _firestore
-        .collection(categoriesPath)
-        .doc(categoryId)
-        .update({'name': newName, 'iconString': iconString});
+    String categoryId,
+    String oldName,
+    String newName,
+    String iconString,
+  ) async {
+    final trimmedName = newName.trim();
+    if (InventoryValidators.validateCategoryName(trimmedName) != null) {
+      throw InventoryValidationException('Invalid category name.');
+    }
+    if (!CategoryModel.allowedIconKeys.contains(iconString)) {
+      throw InventoryValidationException('Invalid category icon.');
+    }
+
+    await _firestore.collection(categoriesPath).doc(categoryId).update({
+      'name': trimmedName,
+      'iconString': iconString,
+    });
 
     final affected = await _firestore
         .collection(collectionPath)
@@ -87,8 +150,15 @@ class InventoryService {
         .get();
 
     final batch = _firestore.batch();
+    final uid = _updatedByUid;
     for (final doc in affected.docs) {
-      batch.update(doc.reference, {'classification': newName});
+      final data = Map<String, dynamic>.from(doc.data());
+      data['classification'] = trimmedName;
+      data['lastUpdated'] = FieldValue.serverTimestamp();
+      if (uid != null) {
+        data['lastUpdatedBy'] = uid;
+      }
+      batch.update(doc.reference, data);
     }
     await batch.commit();
   }
