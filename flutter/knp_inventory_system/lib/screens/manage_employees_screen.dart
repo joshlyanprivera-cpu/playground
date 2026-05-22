@@ -14,7 +14,7 @@ class ManageEmployeesScreen extends StatefulWidget {
 class _ManageEmployeesScreenState extends State<ManageEmployeesScreen> {
   final EmployeeService _employeeService = EmployeeService();
   final Set<String> _updatingIds = {};
-  
+
   // Search state
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
@@ -80,10 +80,7 @@ class _ManageEmployeesScreenState extends State<ManageEmployeesScreen> {
         ),
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: 12,
-        ),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
           children: [
             Expanded(
@@ -100,10 +97,7 @@ class _ManageEmployeesScreenState extends State<ManageEmployeesScreen> {
                   const SizedBox(height: 2),
                   Text(
                     employee.email,
-                    style: GoogleFonts.inter(
-                      fontSize: 13,
-                      color: Colors.grey,
-                    ),
+                    style: GoogleFonts.inter(fontSize: 13, color: Colors.grey),
                   ),
                   const SizedBox(height: 6),
                   Row(
@@ -115,12 +109,8 @@ class _ManageEmployeesScreenState extends State<ManageEmployeesScreen> {
                         ),
                         decoration: BoxDecoration(
                           color: employee.active
-                              ? Colors.green.withValues(
-                                  alpha: 0.12,
-                                )
-                              : Colors.orange.withValues(
-                                  alpha: 0.12,
-                                ),
+                              ? Colors.green.withValues(alpha: 0.12)
+                              : Colors.orange.withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
@@ -159,15 +149,13 @@ class _ManageEmployeesScreenState extends State<ManageEmployeesScreen> {
                 child: SizedBox(
                   width: 24,
                   height: 24,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                  ),
+                  child: CircularProgressIndicator(strokeWidth: 2),
                 ),
               )
             else
               Switch(
                 value: employee.active,
-                activeColor: Colors.green.shade400,
+                activeThumbColor: Colors.green.shade400,
                 onChanged: (value) => _onActiveChanged(employee, value),
               ),
           ],
@@ -192,7 +180,8 @@ class _ManageEmployeesScreenState extends State<ManageEmployeesScreen> {
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
             child: TextField(
               controller: _searchController,
-              onChanged: (value) => setState(() => _searchQuery = value.toLowerCase()),
+              onChanged: (value) =>
+                  setState(() => _searchQuery = value.toLowerCase()),
               decoration: InputDecoration(
                 hintText: 'Search by name or email...',
                 prefixIcon: const Icon(Icons.search),
@@ -238,29 +227,32 @@ class _ManageEmployeesScreenState extends State<ManageEmployeesScreen> {
           }
 
           final allEmployees = _sorted(snapshot.data ?? []);
-          
+
           if (allEmployees.isEmpty) {
             return Center(
               child: Text(
                 'No employees yet.\nNew users appear here after their first sign-in.',
                 textAlign: TextAlign.center,
-                style: GoogleFonts.inter(
-                  color: Colors.grey,
-                  height: 1.4,
-                ),
+                style: GoogleFonts.inter(color: Colors.grey, height: 1.4),
               ),
             );
           }
 
           // Filter logic
           final filteredEmployees = allEmployees.where((e) {
-            final nameMatch = e.displayLabel.toLowerCase().contains(_searchQuery);
+            final nameMatch = e.displayLabel.toLowerCase().contains(
+              _searchQuery,
+            );
             final emailMatch = e.email.toLowerCase().contains(_searchQuery);
             return nameMatch || emailMatch;
           }).toList();
 
-          final pendingEmployees = filteredEmployees.where((e) => e.isPending).toList();
-          final activeEmployees = filteredEmployees.where((e) => e.active).toList();
+          final pendingEmployees = filteredEmployees
+              .where((e) => e.isPending)
+              .toList();
+          final activeEmployees = filteredEmployees
+              .where((e) => e.active)
+              .toList();
 
           if (filteredEmployees.isEmpty) {
             return Center(
@@ -272,10 +264,7 @@ class _ManageEmployeesScreenState extends State<ManageEmployeesScreen> {
                   Text(
                     'No matching employees found.',
                     textAlign: TextAlign.center,
-                    style: GoogleFonts.inter(
-                      color: Colors.grey,
-                      fontSize: 16,
-                    ),
+                    style: GoogleFonts.inter(color: Colors.grey, fontSize: 16),
                   ),
                 ],
               ),
@@ -288,10 +277,16 @@ class _ManageEmployeesScreenState extends State<ManageEmployeesScreen> {
               if (pendingEmployees.isNotEmpty || _searchQuery.isEmpty)
                 ExpansionTile(
                   initiallyExpanded: true,
-                  leading: Icon(Icons.pending_actions, color: Colors.orange.shade700),
+                  leading: Icon(
+                    Icons.pending_actions,
+                    color: Colors.orange.shade700,
+                  ),
                   title: Text(
                     'Pending Approval (${pendingEmployees.length})',
-                    style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 15),
+                    style: GoogleFonts.inter(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 15,
+                    ),
                   ),
                   childrenPadding: const EdgeInsets.only(bottom: 16),
                   children: pendingEmployees.isEmpty
@@ -302,19 +297,25 @@ class _ManageEmployeesScreenState extends State<ManageEmployeesScreen> {
                               'No pending accounts.',
                               style: TextStyle(color: Colors.grey.shade500),
                             ),
-                          )
+                          ),
                         ]
                       : pendingEmployees
-                          .map((e) => _buildEmployeeCard(e, isDark))
-                          .toList(),
+                            .map((e) => _buildEmployeeCard(e, isDark))
+                            .toList(),
                 ),
               if (activeEmployees.isNotEmpty || _searchQuery.isEmpty)
                 ExpansionTile(
                   initiallyExpanded: true,
-                  leading: Icon(Icons.check_circle_outline, color: Colors.green.shade600),
+                  leading: Icon(
+                    Icons.check_circle_outline,
+                    color: Colors.green.shade600,
+                  ),
                   title: Text(
                     'Active Employees (${activeEmployees.length})',
-                    style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 15),
+                    style: GoogleFonts.inter(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 15,
+                    ),
                   ),
                   childrenPadding: const EdgeInsets.only(bottom: 16),
                   children: activeEmployees.isEmpty
@@ -325,11 +326,11 @@ class _ManageEmployeesScreenState extends State<ManageEmployeesScreen> {
                               'No active accounts.',
                               style: TextStyle(color: Colors.grey.shade500),
                             ),
-                          )
+                          ),
                         ]
                       : activeEmployees
-                          .map((e) => _buildEmployeeCard(e, isDark))
-                          .toList(),
+                            .map((e) => _buildEmployeeCard(e, isDark))
+                            .toList(),
                 ),
             ],
           );
