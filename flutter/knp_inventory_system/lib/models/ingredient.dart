@@ -25,8 +25,8 @@ class Ingredient {
       classification: data['classification'] ?? '',
       quantityClassification: data['quantityClassification'] ?? '',
       quantity: (data['quantity'] ?? 0).toDouble(),
-      lastUpdated: data['lastUpdated'] != null 
-          ? (data['lastUpdated'] as Timestamp).toDate() 
+      lastUpdated: data['lastUpdated'] != null
+          ? (data['lastUpdated'] as Timestamp).toDate()
           : null,
     );
   }
@@ -48,7 +48,7 @@ class Ingredient {
   bool get isLowStock {
     switch (quantityClassification) {
       case 'number':
-        return quantity <= 10;
+        return quantity <= 4;
       case 'mg':
         return quantity <= 1000;
       case 'kg':

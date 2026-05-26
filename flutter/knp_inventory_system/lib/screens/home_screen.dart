@@ -20,6 +20,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   String _searchQuery = '';
   String _selectedClassification = 'All';
   List<String> _dynamicClassifications = ['All'];
+  List<CategoryModel> _categories = [];
 
   // ── Edit Mode State ──
   bool _isEditing = false;
@@ -34,24 +35,183 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   late Animation<double> _fabScaleAnim;
 
   // Resolves a category name to its icon using the CategoryModel map,
-  // falling back to the legacy hardcoded switch, then a default.
+  // falling back to Uncategorized or a default if not found.
   IconData _getCategoryIcon(String name) {
-    final cat = CategoryModel.iconMap;
-    // Try to find by known iconString keys (we'll match by name later via stream)
-    // For now use the legacy map as fallback
-    switch (name) {
-      case 'coffee bean': return Icons.coffee;
-      case 'food product': return Icons.fastfood_outlined;
-      case 'dairy/non-dairy': return Icons.icecream_outlined;
-      case 'syrup, sweeteners, flavorings': return Icons.local_cafe_outlined;
-      case 'powders and blends': return Icons.blender_outlined;
-      case 'miscellaneous': return Icons.category_outlined;
-      case 'Uncategorized': return Icons.inbox_outlined;
-      default: return cat.values.first;
+    if (name == 'Uncategorized') {
+      return Icons.inbox_outlined;
     }
+    for (final cat in _categories) {
+      if (cat.name.toLowerCase() == name.toLowerCase()) {
+        return cat.icon;
+      }
+    }
+    return Icons.inventory_2_outlined;
   }
 
+  void _showLowStockBottomSheet(BuildContext context, List<Ingredient> lowStockItems) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
+    // Group items by category (classification)
+    final Map<String, List<Ingredient>> grouped = {};
+    for (final item in lowStockItems) {
+      (grouped[item.classification] ??= []).add(item);
+    }
+
+    // Build ordered list of categories containing low stock items
+    final categoryOrder = _dynamicClassifications
+        .where((c) => c != 'All' && grouped.containsKey(c))
+        .toList();
+    for (final key in grouped.keys) {
+      if (!categoryOrder.contains(key)) categoryOrder.add(key);
+    }
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      builder: (context) {
+        return SizedBox(
+          height: MediaQuery.of(context).size.height * 0.9,
+          child: SafeArea(
+            child: Column(
+              children: [
+                Container(
+                  margin: const EdgeInsets.only(top: 12, bottom: 16),
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.grey.shade700 : Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Row(
+                    children: [
+                      Icon(Icons.warning_amber_rounded, color: Colors.red.shade700, size: 28),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Low Stock Warning',
+                              style: GoogleFonts.inter(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                                color: isDark ? Colors.white : Colors.black87,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'The following items require replenishment',
+                              style: GoogleFonts.inter(
+                                fontSize: 12,
+                                color: Colors.grey.shade500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Divider(),
+                Expanded(
+                  child: ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+                    itemCount: categoryOrder.length,
+                    itemBuilder: (context, catIdx) {
+                      final catName = categoryOrder[catIdx];
+                      final catItems = grouped[catName]!;
+                      final catIcon = _getCategoryIcon(catName);
+
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Theme(
+                          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                          child: ExpansionTile(
+                            key: PageStorageKey('low_stock_$catName'),
+                            initiallyExpanded: false,
+                            tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                            childrenPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                            leading: Container(
+                              width: 40,
+                              height: 40,
+                              decoration: BoxDecoration(
+                                color: isDark
+                                    ? Colors.grey.shade800
+                                    : Theme.of(context).primaryColor.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Icon(
+                                catIcon,
+                                size: 20,
+                                color: Theme.of(context).primaryColor,
+                              ),
+                            ),
+                            title: Text(
+                              catName,
+                              style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w700),
+                            ),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: Theme.of(context).primaryColor.withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    '${catItems.length}',
+                                    style: GoogleFonts.inter(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                      color: Theme.of(context).primaryColor,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                const Icon(Icons.expand_more),
+                              ],
+                            ),
+                            children: catItems.map((item) {
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 2),
+                                child: Card(
+                                  margin: EdgeInsets.zero,
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                                    child: _HomeViewRow(
+                                      item: item,
+                                      isDark: isDark,
+                                      categoryIcon: _getCategoryIcon(item.classification),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   @override
   void initState() {
@@ -61,6 +221,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     _categoryStream.listen((cats) {
       if (!mounted) return;
       setState(() {
+        _categories = cats;
         _dynamicClassifications = ['All', ...cats.map((c) => c.name)];
         // Reset filter if it no longer exists
         if (!_dynamicClassifications.contains(_selectedClassification)) {
@@ -459,6 +620,25 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                                     fontSize: 13,
                                   ),
                                 )),
+                                const SizedBox(width: 8),
+                                TextButton(
+                                  style: TextButton.styleFrom(
+                                    backgroundColor: Colors.white.withValues(alpha: 0.25),
+                                    foregroundColor: Colors.white,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  ),
+                                  onPressed: () => _showLowStockBottomSheet(context, lowStock),
+                                  child: Text(
+                                    'Check',
+                                    style: GoogleFonts.inter(
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
                               ]),
                             ),
                           ),
@@ -481,6 +661,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                                   data: Theme.of(context).copyWith(
                                     dividerColor: Colors.transparent),
                                   child: ExpansionTile(
+                                    key: PageStorageKey('home_$catName'),
                                     initiallyExpanded: false,
                                     tilePadding: const EdgeInsets.symmetric(
                                       horizontal: 16, vertical: 4),
