@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -17,6 +18,7 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
   final InventoryService _inventoryService = InventoryService();
   late final Stream<List<Ingredient>> _inventoryStream;
   late final Stream<List<CategoryModel>> _categoryStream;
+  StreamSubscription<List<CategoryModel>>? _categorySub;
 
   // ── Add-form selection state ──
   String _selectedCategory = '';
@@ -113,9 +115,7 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
 
     setState(() => _isLoading = true);
     try {
-      for (final id in _pendingDeletions) {
-        await _inventoryService.deleteIngredient(id);
-      }
+      final List<Ingredient> toUpdate = [];
       for (final item in _lastSnapshot) {
         if (_pendingDeletions.contains(item.id)) continue;
         final ctrl = _draftControllers[item.id];
@@ -135,7 +135,7 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
           );
         }
         if (newQty == item.quantity && newUnit == item.quantityClassification && newCat == item.classification) continue;
-        await _inventoryService.updateIngredient(Ingredient(
+        toUpdate.add(Ingredient(
           id: item.id,
           name: item.name,
           classification: newCat,
@@ -143,6 +143,12 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
           quantity: newQty,
         ));
       }
+
+      await _inventoryService.batchSaveIngredients(
+        toUpdate: toUpdate,
+        toDelete: _pendingDeletions,
+      );
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Changes saved successfully!')),
@@ -179,8 +185,7 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
         if (qty == null) {
           throw InventoryValidationException('Enter a valid quantity.');
         }
-        final existingSnapshot = await _inventoryService.getInventoryStream().first;
-        final isDuplicate = existingSnapshot.any((item) => item.name.toLowerCase() == newNameLower);
+        final isDuplicate = _lastSnapshot.any((item) => item.name.toLowerCase() == newNameLower);
         if (isDuplicate) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -246,7 +251,7 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
     _inventoryStream = _inventoryService.getInventoryStream();
     _categoryStream = _inventoryService.getCategoriesStream();
     // Populate category dropdown & filter chips once loaded
-    _categoryStream.listen((cats) {
+    _categorySub = _categoryStream.listen((cats) {
       if (!mounted) return;
       setState(() {
         _filterClassifications = ['All', ...cats.map((c) => c.name)];
@@ -259,6 +264,7 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
 
   @override
   void dispose() {
+    _categorySub?.cancel();
     _nameController.dispose();
     _quantityController.dispose();
     _listScrollController.dispose();

@@ -76,6 +76,29 @@ class InventoryService {
     await _firestore.collection(collectionPath).doc(id).delete();
   }
 
+  /// Batch updates and deletes ingredients in a single transaction/batch commit.
+  Future<void> batchSaveIngredients({
+    required List<Ingredient> toUpdate,
+    required Set<String> toDelete,
+  }) async {
+    final batch = _firestore.batch();
+    final uid = _updatedByUid;
+
+    for (final id in toDelete) {
+      batch.delete(_firestore.collection(collectionPath).doc(id));
+    }
+
+    for (final ingredient in toUpdate) {
+      _validateIngredient(ingredient);
+      batch.update(
+        _firestore.collection(collectionPath).doc(ingredient.id),
+        ingredient.toFirestore(updatedByUid: uid),
+      );
+    }
+
+    await batch.commit();
+  }
+
   // ── Categories ─────────────────────────────────────────────────────────────
 
   Stream<List<CategoryModel>> getCategoriesStream() {

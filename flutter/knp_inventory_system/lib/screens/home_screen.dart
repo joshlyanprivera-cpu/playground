@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -17,6 +18,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   final InventoryService _inventoryService = InventoryService();
   late final Stream<List<Ingredient>> _inventoryStream;
   late final Stream<List<CategoryModel>> _categoryStream;
+  StreamSubscription<List<CategoryModel>>? _categorySub;
   String _searchQuery = '';
   String _selectedClassification = 'All';
   List<String> _dynamicClassifications = ['All'];
@@ -218,7 +220,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     super.initState();
     _inventoryStream = _inventoryService.getInventoryStream();
     _categoryStream = _inventoryService.getCategoriesStream();
-    _categoryStream.listen((cats) {
+    _categorySub = _categoryStream.listen((cats) {
       if (!mounted) return;
       setState(() {
         _categories = cats;
@@ -237,6 +239,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   @override
   void dispose() {
+    _categorySub?.cancel();
     _fabAnimController.dispose();
     for (final c in _draftControllers.values) { c.dispose(); }
     super.dispose();
@@ -314,9 +317,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
     setState(() => _isSaving = true);
     try {
-      for (final id in _pendingDeletions) {
-        await _inventoryService.deleteIngredient(id);
-      }
+      final List<Ingredient> toUpdate = [];
       final validCategories = _dynamicClassifications.where((c) => c != 'All').toList();
       for (final item in _lastSnapshot) {
         if (_pendingDeletions.contains(item.id)) continue;
@@ -341,13 +342,19 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           );
         }
         if (newQty == item.quantity && newUnit == item.quantityClassification && newCat == item.classification) continue;
-        await _inventoryService.updateIngredient(Ingredient(
+        toUpdate.add(Ingredient(
           id: item.id, name: item.name,
           classification: newCat,
           quantityClassification: newUnit,
           quantity: newQty,
         ));
       }
+
+      await _inventoryService.batchSaveIngredients(
+        toUpdate: toUpdate,
+        toDelete: _pendingDeletions,
+      );
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Changes saved!')),

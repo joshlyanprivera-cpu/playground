@@ -15,11 +15,17 @@ class MainLayout extends StatefulWidget {
 class _MainLayoutState extends State<MainLayout> {
   int _currentIndex = 0;
 
-  final List<Widget> _screens = [
-    const HomeScreen(),
-    const AddModifyScreen(),
-    const UserProfileScreen(),
+  final List<Widget Function()> _screenBuilders = [
+    () => const HomeScreen(),
+    () => const AddModifyScreen(),
+    () => const UserProfileScreen(),
   ];
+
+  final Map<int, Widget> _loadedScreens = {};
+
+  Widget _getScreen(int index) {
+    return _loadedScreens.putIfAbsent(index, _screenBuilders[index]);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -159,7 +165,7 @@ class _MainLayoutState extends State<MainLayout> {
                 Expanded(
                   child: AnimatedSwitcher(
                     duration: const Duration(milliseconds: 250),
-                    child: _screens[_currentIndex],
+                    child: _getScreen(_currentIndex),
                   ),
                 ),
               ],
@@ -171,7 +177,7 @@ class _MainLayoutState extends State<MainLayout> {
         return Scaffold(
           body: AnimatedSwitcher(
             duration: const Duration(milliseconds: 250),
-            child: _screens[_currentIndex],
+            child: _getScreen(_currentIndex),
           ),
           bottomNavigationBar: Container(
             decoration: BoxDecoration(
