@@ -257,21 +257,18 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       _draftUnits[item.id] = item.quantityClassification;
       _draftCategories[item.id] = item.classification;
     }
-    _fabAnimController.reverse().then((_) {
-      setState(() => _isEditing = true);
-      _fabAnimController.forward();
-    });
+    setState(() => _isEditing = true);
   }
 
   void _cancelEditMode() {
-    _fabAnimController.reverse().then((_) {
-      for (final c in _draftControllers.values) { c.dispose(); }
-      _draftControllers.clear();
-      _draftUnits.clear();
-      _draftCategories.clear();
-      _pendingDeletions.clear();
-      setState(() => _isEditing = false);
-      _fabAnimController.forward();
+    final toDispose = _draftControllers.values.toList();
+    _draftControllers.clear();
+    _draftUnits.clear();
+    _draftCategories.clear();
+    _pendingDeletions.clear();
+    setState(() => _isEditing = false);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      for (final c in toDispose) { c.dispose(); }
     });
   }
 
@@ -320,6 +317,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       for (final id in _pendingDeletions) {
         await _inventoryService.deleteIngredient(id);
       }
+      final validCategories = _dynamicClassifications.where((c) => c != 'All').toList();
       for (final item in _lastSnapshot) {
         if (_pendingDeletions.contains(item.id)) continue;
         final ctrl = _draftControllers[item.id];
@@ -331,7 +329,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           );
         }
         final newUnit = _draftUnits[item.id] ?? item.quantityClassification;
-        final newCat = _draftCategories[item.id] ?? item.classification;
+        var newCat = _draftCategories[item.id] ?? item.classification;
+        // If the saved category no longer exists, use the first valid one
+        if (!validCategories.contains(newCat) && validCategories.isNotEmpty) {
+          newCat = validCategories.first;
+        }
         if (InventoryValidators.validateQuantityUnit(newUnit) != null ||
             InventoryValidators.validateClassification(newCat) != null) {
           throw InventoryValidationException(
@@ -363,13 +365,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       }
     } finally {
       if (mounted) {
-        for (final c in _draftControllers.values) { c.dispose(); }
+        final toDispose = _draftControllers.values.toList();
         _draftControllers.clear();
         _draftUnits.clear();
+        _draftCategories.clear();
         _pendingDeletions.clear();
-        _fabAnimController.reverse().then((_) {
-          setState(() { _isEditing = false; _isSaving = false; });
-          _fabAnimController.forward();
+        setState(() { _isEditing = false; _isSaving = false; });
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          for (final c in toDispose) { c.dispose(); }
         });
       }
     }
@@ -557,8 +560,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       final ingredients = snapshot.data ?? [];
                       if (!_isEditing) _lastSnapshot = ingredients;
 
+                      // Use frozen snapshot while editing so stream updates don't crash
+                      final sourceItems = _isEditing ? _lastSnapshot : ingredients;
+
                       // Apply search + classification filter
-                      final filtered = ingredients.where((item) {
+                      final filtered = sourceItems.where((item) {
                         final ms = item.name.toLowerCase().contains(_searchQuery);
                         final mc = _selectedClassification == 'All' ||
                             item.classification == _selectedClassification;
@@ -968,13 +974,20 @@ class _HomeEditRow extends StatelessWidget {
             bg: Colors.red.withValues(alpha: 0.1),
             onPressed: isMarked ? null : () {
               final v = InventoryValidators.parseQuantity(ctrl.text) ?? 0;
-              if (v > 0) { ctrl.text = fmt(v - 1); }
+              if (v > 0) {
+                final newText = fmt(v - 1);
+                ctrl.value = TextEditingValue(
+                  text: newText,
+                  selection: TextSelection.collapsed(offset: newText.length),
+                );
+              }
             },
           ),
           // Input
           SizedBox(
             width: 52,
             child: TextField(
+              key: PageStorageKey('tf_${item.id}'),
               controller: ctrl,
               enabled: !isMarked,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
@@ -994,7 +1007,11 @@ class _HomeEditRow extends StatelessWidget {
               final v = InventoryValidators.parseQuantity(ctrl.text) ?? 0;
               final next = v + 1;
               if (InventoryValidators.validateQuantity(next) == null) {
-                ctrl.text = fmt(next);
+                final newText = fmt(next);
+                ctrl.value = TextEditingValue(
+                  text: newText,
+                  selection: TextSelection.collapsed(offset: newText.length),
+                );
               }
             },
           ),
