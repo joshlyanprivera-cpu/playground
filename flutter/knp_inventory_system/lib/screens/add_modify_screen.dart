@@ -6,6 +6,7 @@ import '../models/ingredient.dart';
 import '../services/inventory_service.dart';
 import '../models/category_model.dart';
 import '../utils/inventory_validators.dart';
+import 'logs_screen.dart';
 
 class AddModifyScreen extends StatefulWidget {
   const AddModifyScreen({super.key});
@@ -144,9 +145,10 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
         ));
       }
 
+      final toDeleteIngredients = _lastSnapshot.where((item) => _pendingDeletions.contains(item.id)).toList();
       await _inventoryService.batchSaveIngredients(
         toUpdate: toUpdate,
-        toDelete: _pendingDeletions,
+        toDelete: toDeleteIngredients,
       );
 
       if (mounted) {
@@ -298,8 +300,20 @@ class _AddModifyScreenState extends State<AddModifyScreen> {
                       child: Image.asset('images/knp_logo.png', height: 32),
                     ),
                     const SizedBox(width: 12),
-                    Text('Add / Modify',
-                      style: GoogleFonts.inter(fontSize: 24, fontWeight: FontWeight.w800)),
+                    Expanded(
+                      child: Text('Add / Modify',
+                        style: GoogleFonts.inter(fontSize: 24, fontWeight: FontWeight.w800)),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.history_rounded),
+                      tooltip: 'View Audit Logs',
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => const LogsScreen()),
+                        );
+                      },
+                    ),
                   ]),
                   const SizedBox(height: 20),
 

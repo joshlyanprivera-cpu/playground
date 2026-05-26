@@ -99,6 +99,24 @@ service cloud.firestore {
       allow delete: if isActiveEmployee();
     }
 
+    function validLogData(data) {
+      return data.keys().hasAll(['action', 'targetType', 'itemName', 'userIdentifier', 'timestamp'])
+        && data.action in ['add', 'update', 'delete', 'batch']
+        && data.targetType in ['ingredient', 'category']
+        && data.itemName is string
+        && data.userIdentifier is string
+        && data.timestamp is timestamp
+        && (!('quantityChange' in data) || data.quantityChange is number)
+        && (!('categoryName' in data) || data.categoryName is string)
+        && (!('quantityUnit' in data) || data.quantityUnit is string)
+        && (!('previousCategory' in data) || data.previousCategory is string)
+        && (!('newCategory' in data) || data.newCategory is string)
+        && (!('previousQuantityUnit' in data) || data.previousQuantityUnit is string)
+        && (!('newQuantityUnit' in data) || data.newQuantityUnit is string)
+        && (!('bulkDeletions' in data) || data.bulkDeletions is list)
+        && (!('bulkUpdates' in data) || data.bulkUpdates is list);
+    }
+
     match /categories/{docId} {
       allow read: if isActiveEmployee();
       allow create: if isActiveEmployee()
@@ -106,6 +124,13 @@ service cloud.firestore {
       allow update: if isActiveEmployee()
         && validCategoryData(request.resource.data);
       allow delete: if isActiveEmployee();
+    }
+
+    match /logs/{docId} {
+      allow read: if isActiveEmployee();
+      allow create: if isActiveEmployee()
+        && validLogData(request.resource.data);
+      allow update, delete: if false;
     }
   }
 }

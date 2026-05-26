@@ -6,6 +6,7 @@ import '../services/inventory_service.dart';
 import '../models/ingredient.dart';
 import '../models/category_model.dart';
 import '../utils/inventory_validators.dart';
+import 'logs_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -350,9 +351,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         ));
       }
 
+      final toDeleteIngredients = _lastSnapshot.where((item) => _pendingDeletions.contains(item.id)).toList();
       await _inventoryService.batchSaveIngredients(
         toUpdate: toUpdate,
-        toDelete: _pendingDeletions,
+        toDelete: toDeleteIngredients,
       );
 
       if (mounted) {
@@ -458,7 +460,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         style: GoogleFonts.inter(fontSize: 24, fontWeight: FontWeight.w800)),
                     ),
                     // Edit mode badge
-                    if (_isEditing)
+                    if (_isEditing) ...[
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                         decoration: BoxDecoration(
@@ -477,6 +479,18 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                               color: Theme.of(context).primaryColor)),
                         ]),
                       ),
+                      const SizedBox(width: 8),
+                    ],
+                    IconButton(
+                      icon: const Icon(Icons.history_rounded),
+                      tooltip: 'View Audit Logs',
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => const LogsScreen()),
+                        );
+                      },
+                    ),
                   ]),
                 ),
 
